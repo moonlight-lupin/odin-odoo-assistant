@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!--
+        OAuth 2.1 consent screen.
+
+        Rendered by GET /oauth/authorize once the user is logged in.
+        Approve/Deny POSTs back to /oauth/authorize, which issues a
+        short-lived authorization code and redirects to the client's
+        registered redirect_uri.
+    -->
+    <template id="oauth_consent" name="MCP OAuth Consent">
+        <t t-call="web.frontend_layout">
+            <t t-set="no_header" t-value="True"/>
+            <t t-set="no_footer" t-value="True"/>
+            <t t-set="head">
+                <title>Authorize MCP Access</title>
+            </t>
+            <div class="container py-5" style="max-width: 560px;">
+                <div class="card shadow-sm">
+                    <div class="card-body p-4">
+                        <h3 class="card-title mb-3">
+                            Authorize MCP access
+                        </h3>
+                        <p class="text-muted">
+                            <strong t-esc="client.name or client.client_id"/>
+                            is requesting access to your Odoo account.
+                        </p>
+                        <ul class="list-unstyled mb-4">
+                            <li class="mb-2">
+                                <i class="fa fa-user me-2"/>
+                                Sign in as
+                                <strong t-esc="user_id.name"/>
+                                (<span t-esc="user_id.login"/>)
+                            </li>
+                            <li class="mb-2">
+                                <i class="fa fa-key me-2"/>
+                                Scope:
+                                <code t-esc="scope"/>
+                            </li>
+                            <li class="mb-2 text-muted small">
+                                <i class="fa fa-info-circle me-2"/>
+                                The client will be able to call tools as
+                                you — record rules and access rights
+                                still apply. You can revoke access at
+                                any time by deleting its tokens under
+                                Settings → Technical → MCP OAuth Tokens.
+                            </li>
+                        </ul>
+                        <form method="post"
+                              action="/oauth/authorize"
+                              class="d-flex justify-content-between">
+                            <input type="hidden" name="csrf_token"
+                                   t-att-value="request.csrf_token()"/>
+                            <input type="hidden" name="client_id"
+                                   t-att-value="client.client_id"/>
+                            <input type="hidden" name="redirect_uri"
+                                   t-att-value="redirect_uri"/>
+                            <input type="hidden" name="state"
+                                   t-att-value="state"/>
+                            <input type="hidden" name="scope"
+                                   t-att-value="scope"/>
+                            <input type="hidden" name="code_challenge"
+                                   t-att-value="code_challenge"/>
+                            <input type="hidden" name="code_challenge_method"
+                                   t-att-value="code_challenge_method"/>
+                            <button type="submit"
+                                    name="decision"
+                                    value="deny"
+                                    class="btn btn-secondary">
+                                Deny
+                            </button>
+                            <button type="submit"
+                                    name="decision"
+                                    value="approve"
+                                    class="btn btn-primary">
+                                Approve
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </t>
+    </template>
+
+</odoo>

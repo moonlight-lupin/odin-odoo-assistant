@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!--
+        Surface the MCP / OAuth slots under Settings → General Settings.
+
+        When ``mcp_oauth_enabled`` is False (or ``mcp_oauth_issuer_url`` is
+        empty) the OAuth endpoints return 404 and /mcp/v1 accepts only
+        Odoo API keys — the original bearer behaviour.
+    -->
+    <record id="res_config_settings_view_form_mcp" model="ir.ui.view">
+        <field name="name">res.config.settings.view.form.inherit.mcp</field>
+        <field name="model">res.config.settings</field>
+        <field name="inherit_id" ref="base.res_config_settings_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//form" position="inside">
+                <app data-string="MCP Server" string="MCP Server"
+                     name="odoo_module_mcp_server" groups="base.group_system">
+                    <block title="Write protection"
+                           name="odoo_module_mcp_server_protect_setting_container">
+                        <setting id="odoo_module_mcp_server_allow_delete_setting"
+                                 string="Allow record deletion"
+                                 help="Off by default. When off, the
+                                       odoo.unlink tool refuses to hard-delete
+                                       records on every model — archive
+                                       (active=False) or cancel instead. Turn
+                                       on only if agents must permanently
+                                       delete records.">
+                            <field name="mcp_allow_record_deletion"/>
+                            <div class="text-muted">
+                                Mirrors a no-destructive-delete policy:
+                                <code>odoo.unlink</code> (and
+                                <code>call_method</code> → <code>unlink</code>)
+                                are blocked on all models while this is off.
+                            </div>
+                        </setting>
+                        <setting id="odoo_module_mcp_server_protect_structural_setting"
+                                 string="Protect structural models"
+                                 help="When on, the MCP write tools refuse
+                                       to modify schema / security / module
+                                       / settings tables (ir.*, res.users,
+                                       res.groups, mail.template, …). Reads
+                                       are always allowed. On by default —
+                                       turn it off only if you trust the
+                                       agent to do anything its Odoo user
+                                       can do.">
+                            <field name="mcp_protect_structural"/>
+                            <div class="text-muted">
+                                Denylist: <code>ir.*</code> (except
+                                <code>ir.attachment</code>), <code>bus.*</code>,
+                                <code>base_automation.*</code>,
+                                <code>res.users</code> + apikeys,
+                                <code>res.groups</code>,
+                                <code>res.lang</code> / <code>res.currency</code>
+                                / <code>res.country</code>,
+                                <code>mail.template</code>,
+                                <code>mail.alias</code>.
+                            </div>
+                        </setting>
+                    </block>
+                    <block title="Authentication"
+                           name="odoo_module_mcp_server_auth_setting_container">
+                        <setting id="odoo_module_mcp_server_api_key_only"
+                                 string="API key (always on)"
+                                 help="The /mcp/v1 endpoint always accepts a
+                                       standard Odoo API key with scope
+                                       'rpc' via the Authorization: Bearer
+                                       header. Generate keys from Settings →
+                                       Users → My Profile → Account Security.">
+                            <div class="text-muted">
+                                Tool calls run as the API-key owner; record
+                                rules and ir.model.access apply.
+                            </div>
+                        </setting>
+                        <setting id="odoo_module_mcp_server_oauth_enabled_setting"
+                                 string="OAuth 2.1 (Claude-compatible)"
+                                 help="Enable OAuth 2.1 + Dynamic Client
+                                       Registration + PKCE so external agents
+                                       (e.g. Claude Desktop / Claude.ai custom
+                                       connectors) can authenticate without
+                                       sharing an API key.">
+                            <field name="mcp_oauth_enabled"/>
+                            <div class="content-group"
+                                 invisible="not mcp_oauth_enabled">
+                                <div class="mt16">
+                                    <label for="mcp_oauth_issuer_url"
+                                           string="Issuer URL"
+                                           class="o_light_label"/>
+                                    <field name="mcp_oauth_issuer_url"
+                                           placeholder="https://odoo.example.com"/>
+                                    <div class="text-muted">
+                                        Public base URL of this Odoo instance —
+                                        must match the host clients use to reach
+                                        /mcp/v1.
+                                    </div>
+                                </div>
+                                <div class="mt16">
+                                    <label for="mcp_oauth_access_ttl"
+                                           string="Access token TTL (min)"
+                                           class="o_light_label"/>
+                                    <field name="mcp_oauth_access_ttl"/>
+                                </div>
+                                <div class="mt16">
+                                    <label for="mcp_oauth_refresh_ttl"
+                                           string="Refresh token TTL (days)"
+                                           class="o_light_label"/>
+                                    <field name="mcp_oauth_refresh_ttl"/>
+                                </div>
+                                <div class="text-muted mt16">
+                                    When enabled, the server exposes
+                                    <code>/.well-known/oauth-protected-resource</code>,
+                                    <code>/.well-known/oauth-authorization-server</code>,
+                                    <code>/oauth/register</code>,
+                                    <code>/oauth/authorize</code> and
+                                    <code>/oauth/token</code>. When off, those
+                                    return 404 and /mcp/v1 accepts only API keys.
+                                </div>
+                            </div>
+                        </setting>
+                    </block>
+                </app>
+            </xpath>
+        </field>
+    </record>
+
+</odoo>

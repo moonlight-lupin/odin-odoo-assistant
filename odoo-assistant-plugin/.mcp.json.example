@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "odoo": {
+      "type": "http",
+      "url": "https://odoo.example.com/mcp/v1"
+    }
+  }
+}

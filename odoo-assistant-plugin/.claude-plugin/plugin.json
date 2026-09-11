@@ -1,0 +1,16 @@
+{
+  "name": "odoo-assistant",
+  "version": "1.0.0",
+  "description": "Odin — an Odoo finance assistant with a bundled Odoo MCP connector (odoo_* tools). Greet with \"hi Odin\" or hand it any Odoo task: journal entries, vendor bills, customer invoices, bank statement import and reconciliation, month/quarter/year-end review, audit trail, budgets, TB / P&L / BS reports, new-entity + chart-of-accounts setup, books migration / opening balances. 15 playbooks; draft-only and read-first by default.",
+  "author": {
+    "name": "Meng Huey"
+  },
+  "keywords": [
+    "odoo",
+    "accounting",
+    "bookkeeping",
+    "finance",
+    "mcp"
+  ],
+  "license": "Apache-2.0"
+}

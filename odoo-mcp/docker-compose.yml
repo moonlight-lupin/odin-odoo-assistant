@@ -1,0 +1,19 @@
+services:
+  odoo-mcp:
+    build: .
+    image: odoo-mcp:latest
+    container_name: odoo-mcp
+    restart: unless-stopped
+    ports:
+      # host:container — the MCP endpoint is at http://<host>:8000/mcp
+      - "8000:8000"
+    environment:
+      MCP_TRANSPORT: http
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: "8000"
+      MCP_PATH: /mcp
+      ODOO_CONFIG_PATH: /config/odoo_config.json
+    volumes:
+      # The config lives on the host so it survives rebuilds and stays gitignored.
+      # On first run the container seeds ./config/odoo_config.json from the example.
+      - ./config:/config

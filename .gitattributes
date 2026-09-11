@@ -1,0 +1,10 @@
+# Keep text files LF in the working copy (Windows autocrlf would otherwise convert on checkout;
+# CRLF in SKILL.md breaks the skills-viewer frontmatter parse — see hooks/skill_plugin_hygiene.py)
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.pdf binary
+*.xlsx binary
+*.zip binary
+*.tar binary
+*.plugin binary

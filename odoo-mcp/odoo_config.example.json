@@ -1,0 +1,6 @@
+{
+  "url": "https://your-odoo-server",
+  "db": "your_database_name",
+  "allow_record_deletion": false,
+  "allow_model_changes": false
+}

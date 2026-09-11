@@ -1,0 +1,13 @@
+# Keep the build context tiny and never bake secrets/config into the image.
+config/
+odoo_config.json
+**/odoo_config.json
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.tar
+README.md
+docker-compose.yml
+.dockerignore
+.git/
