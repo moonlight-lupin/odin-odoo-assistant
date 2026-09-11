@@ -403,6 +403,12 @@ run — edit the URL to your own instance, or the packaged plugin connects nowhe
 
 The same placeholder host appears throughout `odoo_module_mcp_server/OAUTH_SETUP.md`.
 
+## Support
+
+If this saved you an afternoon, you can
+[buy me a coffee](https://buymeacoffee.com/moonlightlupin). Entirely optional — bug reports and
+version-compatibility findings are worth more.
+
 ## Licence
 
 Copyright 2026 **[Phronesis Applied](https://www.phronesis-applied.com)**.
