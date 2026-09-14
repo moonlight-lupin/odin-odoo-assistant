@@ -20,6 +20,13 @@ at `<workspace>/odoo_config.json`). Override with the ODOO_CONFIG_PATH env var.
 
 Transport: stdio. Claude launches this as a subprocess and talks to it over
 stdin/stdout per the MCP protocol.
+
+Logging: every tool call is written to a rotating JSONL audit trail (who, which
+tool, arguments, outcome, duration) and mirrored to stderr, alongside structured
+diagnostics for connection/auth/transport events. Credentials are redacted and
+payloads truncated before anything is written. See audit.py for the env vars
+(MCP_AUDIT_LOG, MCP_AUDIT_LEVEL, MCP_LOG_LEVEL, …) and odoo_audit_tail to read
+the trail back.
 """
 
 from __future__ import annotations
@@ -27,6 +34,7 @@ from __future__ import annotations
 import base64
 import http.cookiejar
 import json
+import logging
 import os
 import ssl
 import urllib.error
@@ -37,7 +45,23 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
+import audit
+
 mcp = FastMCP("odoo-assistant")
+
+_log = logging.getLogger(audit.LOGGER_NAME)
+
+
+def _tool():
+    """``@_tool()`` plus the audit trail.
+
+    Every tool in this file is registered through here so no call path can
+    silently skip the log. ``audit_tool`` preserves the signature FastMCP
+    introspects, so the advertised schema is unchanged.
+    """
+    def decorator(fn):
+        return mcp.tool()(audit.audit_tool(fn))
+    return decorator
 
 # ---------- Config & connection ----------
 
@@ -150,8 +174,14 @@ def _authenticate(username: str, api_key: str, db: str | None = None,
     try:
         uid = common.authenticate(db, username, api_key, {})
     except Exception as e:  # network/transport errors
+        _log.error("Odoo unreachable at %s (db=%s): %s", url, db, e)
+        audit.get().event("auth_failure", url=url, db=db, username=username,
+                          reason="unreachable", detail=str(e))
         raise RuntimeError(f"Could not reach Odoo at {url}: {e}") from e
     if not uid:
+        _log.warning("Authentication rejected for %s at %s (db=%s)", username, url, db)
+        audit.get().event("auth_failure", url=url, db=db, username=username,
+                          reason="rejected")
         raise RuntimeError(
             "Authentication failed — check your username and api_key (and that 'db' is "
             f"correct: {db!r}). Odoo API keys require developer mode to be enabled."
@@ -165,7 +195,30 @@ def _authenticate(username: str, api_key: str, db: str | None = None,
         "allow_record_deletion": bool(cfg.get("allow_record_deletion", False)),
         "allow_model_changes": bool(cfg.get("allow_model_changes", False)),
     })
+    _log.info("Connected to %s (db=%s) as %s [uid=%s]", url, db, username, uid)
+    audit.get().event(
+        "connected", url=url, db=db, uid=uid, username=username,
+        allow_record_deletion=_state["allow_record_deletion"],
+        allow_model_changes=_state["allow_model_changes"],
+    )
     return _state
+
+
+def _audit_context() -> dict[str, Any]:
+    """The session block attached to every audit record.
+
+    Deliberately a whitelist: url, db, uid and username identify WHO acted, and
+    `api_key` is structurally absent — it is never copied out of `_state`.
+    """
+    if not _state:
+        return {"connected": False}
+    return {
+        "url": _state.get("url"), "db": _state.get("db"),
+        "uid": _state.get("uid"), "username": _state.get("username"),
+    }
+
+
+audit.set_context_provider(_audit_context)
 
 
 def _session() -> dict[str, Any]:
@@ -197,6 +250,12 @@ def _session() -> dict[str, Any]:
 
 class GuardrailError(RuntimeError):
     """Raised when a policy control blocks an operation. Surfaced to Claude as-is."""
+
+
+# A guardrail refusal is a *policy* outcome, not a fault — the audit trail files
+# it as "blocked" so operators can tell "the agent tried and was stopped" apart
+# from "Odoo errored".
+audit.register_policy_errors(GuardrailError)
 
 
 # Structural/technical models that define the schema, modules, UI, automation and
@@ -299,7 +358,7 @@ def _company_ctx(company_id: int | None) -> dict | None:
 
 # ---------- Tools ----------
 
-@mcp.tool()
+@_tool()
 def odoo_connect(username: str, api_key: str, db: str | None = None,
                  url: str | None = None) -> dict[str, Any]:
     """Authenticate to Odoo with the user's OWN credentials and start a session.
@@ -330,14 +389,17 @@ def odoo_connect(username: str, api_key: str, db: str | None = None,
     }
 
 
-@mcp.tool()
+@_tool()
 def odoo_disconnect() -> dict[str, str]:
     """Clear the cached session so a different user can connect with their own credentials."""
+    # Log before clearing, so the record still names who is being disconnected.
+    audit.get().event("disconnected", username=_state.get("username"),
+                      uid=_state.get("uid"), db=_state.get("db"))
     _state.clear()
     return {"status": "disconnected"}
 
 
-@mcp.tool()
+@_tool()
 def odoo_whoami() -> dict[str, Any]:
     """Return current connection details and the list of companies visible to the user.
 
@@ -357,7 +419,7 @@ def odoo_whoami() -> dict[str, Any]:
     }
 
 
-@mcp.tool()
+@_tool()
 def odoo_search_read(
     model: str,
     domain: list | None = None,
@@ -399,7 +461,7 @@ def odoo_search_read(
     return _execute(model, "search_read", [domain or []], kwargs)
 
 
-@mcp.tool()
+@_tool()
 def odoo_search_count(model: str, domain: list | None = None, company_id: int | None = None) -> int:
     """Count records matching a domain. Run this before search_read on large models.
 
@@ -413,7 +475,7 @@ def odoo_search_count(model: str, domain: list | None = None, company_id: int | 
     return _execute(model, "search_count", [domain or []], kwargs)
 
 
-@mcp.tool()
+@_tool()
 def odoo_read_group(
     model: str,
     domain: list | None = None,
@@ -462,7 +524,7 @@ def odoo_read_group(
     )
 
 
-@mcp.tool()
+@_tool()
 def odoo_name_search(
     model: str,
     name: str = "",
@@ -501,7 +563,7 @@ def odoo_name_search(
     return [{"id": rid, "display_name": label} for rid, label in rows]
 
 
-@mcp.tool()
+@_tool()
 def odoo_read(
     model: str,
     ids: list[int],
@@ -526,7 +588,7 @@ def odoo_read(
     return _execute(model, "read", [ids], kwargs)
 
 
-@mcp.tool()
+@_tool()
 def odoo_fields_get(model: str, attributes: list[str] | None = None) -> dict[str, dict]:
     """Discover the schema of any model — field names, types, required flags, relations.
 
@@ -541,7 +603,7 @@ def odoo_fields_get(model: str, attributes: list[str] | None = None) -> dict[str
     return _execute(model, "fields_get", [], {"attributes": attrs})
 
 
-@mcp.tool()
+@_tool()
 def odoo_create(model: str, values: dict) -> int:
     """Create a single record. Returns the new record ID.
 
@@ -558,7 +620,7 @@ def odoo_create(model: str, values: dict) -> int:
     return _execute(model, "create", [values])
 
 
-@mcp.tool()
+@_tool()
 def odoo_write(model: str, ids: list[int], values: dict) -> bool:
     """Update existing records. Returns True on success.
 
@@ -568,7 +630,7 @@ def odoo_write(model: str, ids: list[int], values: dict) -> bool:
     return _execute(model, "write", [ids, values])
 
 
-@mcp.tool()
+@_tool()
 def odoo_archive(model: str, ids: list[int], archive: bool = True) -> bool:
     """Archive or unarchive records — the non-destructive alternative to deletion.
 
@@ -586,7 +648,7 @@ def odoo_archive(model: str, ids: list[int], archive: bool = True) -> bool:
     return _execute(model, "write", [ids, {"active": not archive}])
 
 
-@mcp.tool()
+@_tool()
 def odoo_cancel(model: str, ids: list[int]) -> dict[str, Any]:
     """Cancel workflow records via their cancel action — non-destructive alternative to delete.
 
@@ -619,7 +681,7 @@ def odoo_cancel(model: str, ids: list[int]) -> dict[str, Any]:
 _REPORT_EXT = {"pdf": "pdf", "html": "html", "text": "txt"}
 
 
-@mcp.tool()
+@_tool()
 def odoo_render_report(report_ref: str, ids: list[int], converter: str = "pdf") -> dict[str, Any]:
     """Render an Odoo QWeb report (`ir.actions.report`) to a file and return it as base64.
 
@@ -684,7 +746,7 @@ def odoo_render_report(report_ref: str, ids: list[int], converter: str = "pdf") 
     }
 
 
-@mcp.tool()
+@_tool()
 def odoo_execute(
     model: str,
     method: str,
@@ -709,6 +771,37 @@ def odoo_execute(
         kwargs: Keyword args, often {}.
     """
     return _execute(model, method, args or [], kwargs or {})
+
+
+# ---------- Logging interface ----------
+
+
+@mcp.tool()
+def odoo_audit_tail(limit: int = 50, tool: str | None = None,
+                    outcome: str | None = None) -> dict[str, Any]:
+    """Read back this server's audit trail — every tool call it has recorded.
+
+    Use it to answer "what did I actually do in this database?": each entry has
+    the timestamp, tool name, the (redacted, truncated) arguments, the outcome
+    and how long the call took. Credentials are never present — the server
+    masks them before writing.
+
+    This tool is itself NOT audited (reading the log is not an action on the
+    books) and it only ever reads the local file — it touches no Odoo data.
+
+    Args:
+        limit: Max entries to return, newest first (default 50).
+        tool: Optional tool name to filter on, e.g. "odoo_write".
+        outcome: Optional outcome filter — "ok", "blocked" (refused by a policy
+                 guardrail) or "error".
+
+    Returns: the trail's status/path/level plus the matching entries. If no file
+    sink is configured, `entries` is empty and `status` says so.
+    """
+    log = audit.get()
+    info = log.describe()
+    info["entries"] = log.tail(limit=limit, tool=tool, outcome=outcome)
+    return info
 
 
 def _transport_security():
@@ -748,7 +841,21 @@ def _run() -> None:
     MCP_PORT (default 8000). The MCP endpoint is served at MCP_PATH (default /mcp).
     Host-header protection is controlled by MCP_ALLOWED_HOSTS (see _transport_security).
     """
+    # Configure the logging interface first, so startup problems (including a
+    # missing/invalid config) are themselves logged. A bad config must not stop
+    # the server from starting — tool calls surface the error instead.
+    try:
+        cfg = _load_cfg()
+    except RuntimeError as e:
+        cfg = {}
+        audit.configure({}, default_dir=_CONFIG_PATH.parent)
+        _log.warning("Starting without a usable config: %s", e)
+    else:
+        audit.configure(cfg, default_dir=_CONFIG_PATH.parent)
+
     transport = os.environ.get("MCP_TRANSPORT", "stdio").lower()
+    _log.info("Odoo MCP server starting (transport=%s, audit=%s)",
+              transport, audit.get().describe())
     if transport in ("http", "streamable-http", "streamable_http"):
         mcp.settings.host = os.environ.get("MCP_HOST", "0.0.0.0")
         mcp.settings.port = int(os.environ.get("MCP_PORT", "8000"))

@@ -17,6 +17,7 @@ MCP server that wraps your Odoo XML-RPC API and exposes generic CRUD + escape-ha
 - `odoo_cancel` — cancel workflow records (`action_cancel`/`button_cancel`)
 - `odoo_render_report` — render a QWeb report (pdf/html/text) over HTTP and return it as base64
 - `odoo_execute` — generic escape hatch for any model.method (policy controls still apply)
+- `odoo_audit_tail` — read back the server's own audit trail (local file only; touches no Odoo data)
 
 > There is **no delete tool** — see Controls below.
 
@@ -37,6 +38,7 @@ odoo-assistant/
 │   └── references/          ← Odoo 18 model/API reference docs the skill loads
 └── odoo-mcp/
     ├── server.py                 ← the MCP server (stdio or HTTP)
+    ├── audit.py                   ← logging interface (audit trail + diagnostics)
     ├── config_gui.py             ← GUI to edit odoo_config.json
     ├── requirements.txt
     ├── Dockerfile                ← builds the HTTP service image
@@ -133,6 +135,13 @@ docker run -d --name odoo-mcp -p 8000:8000 -v "$PWD/config:/config" odoo-mcp:lat
 | `MCP_PATH` | `/mcp` | HTTP endpoint path |
 | `ODOO_CONFIG_PATH` | `/config/odoo_config.json` | config location inside the container |
 | `MCP_HTTP_USER_AGENT` | a Chrome UA string | User-Agent sent on `odoo_render_report` HTTP login/download (avoids Cloudflare 403 on Odoo Online); override if needed |
+| `MCP_AUDIT_LOG` | `/config/mcp-audit.jsonl` (in image) | audit-trail file; `off` disables the file sink (stderr only) |
+| `MCP_AUDIT_LEVEL` | `all` | `off`, `error` (failures + policy blocks only), or `all` |
+| `MCP_AUDIT_PAYLOADS` | `true` | `false` logs only tool/user/outcome/duration — no argument values |
+| `MCP_AUDIT_MAX_BYTES` | `5242880` | rotate the trail at this size |
+| `MCP_AUDIT_BACKUPS` | `3` | how many rotated files to keep |
+| `MCP_AUDIT_STDERR` | `true` | mirror each record to stderr (`docker logs`) |
+| `MCP_LOG_LEVEL` | `INFO` | level for the diagnostic logger (connection/auth/transport) |
 
 ### Register the hosted server with a client
 
@@ -214,6 +223,110 @@ Each control can be lifted per instance by setting the flag to `true` in `odoo_c
 ```
 
 > Note: these controls live in the **MCP server**, so they apply to everything that goes through it (including the `odin` skill).
+
+## Logging (audit trail + diagnostics)
+
+Every tool call is recorded. This is the "what did the agent actually do in our books"
+record — and, because the guardrails below refuse things, it is also the record of what
+it *tried* to do and was stopped from doing.
+
+Two streams, both written to **stderr-safe** paths (on stdio, stdout is the MCP protocol
+channel and must stay byte-clean):
+
+1. **Audit trail** — one JSON object per tool call, appended to a rotating JSONL file and
+   mirrored to stderr.
+2. **Diagnostics** — the `odoo_mcp` logger: connection, authentication, transport and
+   configuration events.
+
+A record looks like this (one line, pretty-printed here):
+
+```json
+{
+  "ts": "2026-09-14T09:12:33.481920+00:00",
+  "kind": "tool_call",
+  "seq": 42,
+  "pid": 1,
+  "session": {"url": "https://odoo.example.com", "db": "prod", "uid": 7,
+              "username": "you@company.com"},
+  "tool": "odoo_write",
+  "outcome": "ok",
+  "duration_ms": 61.4,
+  "args": {"model": "account.move", "ids": [1841], "values": {"ref": "INV-2026-0031"}},
+  "result": true
+}
+```
+
+`outcome` is one of:
+
+| Outcome | Meaning |
+|---------|---------|
+| `ok` | the call succeeded |
+| `blocked` | refused by a policy guardrail (deletion / model tampering) before reaching Odoo |
+| `error` | Odoo (or the transport) returned a fault |
+
+### What is and isn't written
+
+- **Credentials are never written.** Any key that looks like a secret — `api_key`,
+  `password`, `token`, `authorization`, `client_secret`, … at any nesting depth — is
+  replaced with `***redacted***` before serialisation. The `session` block is a
+  whitelist (url, db, uid, username): the API key is structurally absent from it.
+- **Payloads are bounded.** Strings over 512 chars and lists over 20 items are truncated
+  with an explicit marker, nesting deeper than 6 levels collapses, and byte payloads
+  (e.g. a rendered PDF) become `<N bytes>`. A result set of records is summarised to
+  `{"type": "records", "count": N, "ids": [...]}` — the ids are what you need to pull the
+  records back up; the field values are already in Odoo.
+- **Logging never breaks a tool call.** An unwritable path, a full disk or an
+  unserialisable payload degrades the record, warns once, and the call proceeds.
+
+### Configuration
+
+Env vars (see the table above) win over the equivalent `odoo_config.json` keys:
+
+```json
+{
+  "url": "...",
+  "db": "...",
+  "audit_log": "mcp-audit.jsonl",
+  "audit_level": "all",
+  "audit_payloads": true,
+  "audit_max_bytes": 5242880,
+  "audit_backups": 3,
+  "log_level": "INFO"
+}
+```
+
+A **relative** `audit_log` resolves against the folder holding `odoo_config.json` (not the
+process cwd, which on stdio is whatever the MCP client launched from). With nothing set,
+the trail lands next to the config as `mcp-audit.jsonl`. Set `"audit_log": false` or
+`MCP_AUDIT_LOG=off` to keep stderr only.
+
+> The trail is gitignored (`mcp-audit.jsonl*`) — it is operational data about your books.
+> Treat it like a log of financial activity: it names users, models and record ids.
+
+### Reading it back
+
+Ask Claude, via the `odoo_audit_tail` tool:
+
+```
+odoo_audit_tail(limit=20, outcome="blocked")   → everything a guardrail refused
+odoo_audit_tail(tool="odoo_write")             → every write this server made
+```
+
+Or straight from the file:
+
+```bash
+# last 20 calls, newest last
+tail -n 20 config/mcp-audit.jsonl | jq -c '{ts, tool, outcome, user: .session.username}'
+
+# everything a guardrail refused
+jq -c 'select(.outcome == "blocked") | {ts, tool, error: .error.message}' config/mcp-audit.jsonl
+
+# every write to account.move
+jq -c 'select(.args.model == "account.move" and .tool == "odoo_write")' config/mcp-audit.jsonl
+```
+
+In Docker the trail is inside the `/config` volume, so it survives rebuilds, and
+`docker logs odoo-mcp` shows the same records on stderr.
 
 ## Smoke test
 

@@ -2,5 +2,12 @@
   "url": "https://your-odoo-server",
   "db": "your_database_name",
   "allow_record_deletion": false,
-  "allow_model_changes": false
+  "allow_model_changes": false,
+
+  "audit_log": "mcp-audit.jsonl",
+  "audit_level": "all",
+  "audit_payloads": true,
+  "audit_max_bytes": 5242880,
+  "audit_backups": 3,
+  "log_level": "INFO"
 }
