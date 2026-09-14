@@ -8,7 +8,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     MCP_HOST=0.0.0.0 \
     MCP_PORT=8000 \
     MCP_PATH=/mcp \
-    ODOO_CONFIG_PATH=/config/odoo_config.json
+    ODOO_CONFIG_PATH=/config/odoo_config.json \
+    MCP_AUDIT_LOG=/config/mcp-audit.jsonl
 
 WORKDIR /app
 
@@ -17,7 +18,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Application code + example config template + entrypoint.
-COPY server.py odoo_config.example.json ./
+COPY server.py audit.py odoo_config.example.json ./
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 

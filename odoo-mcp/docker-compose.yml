@@ -13,6 +13,14 @@ services:
       MCP_PORT: "8000"
       MCP_PATH: /mcp
       ODOO_CONFIG_PATH: /config/odoo_config.json
+      # Logging interface — the audit trail lands in the same /config volume
+      # as the config, so it survives rebuilds. Set MCP_AUDIT_LOG=off to
+      # disable the file sink (records still go to stderr / `docker logs`).
+      MCP_AUDIT_LOG: /config/mcp-audit.jsonl
+      MCP_AUDIT_LEVEL: all        # off | error | all
+      MCP_AUDIT_MAX_BYTES: "5242880"
+      MCP_AUDIT_BACKUPS: "3"
+      MCP_LOG_LEVEL: INFO
     volumes:
       # The config lives on the host so it survives rebuilds and stays gitignored.
       # On first run the container seeds ./config/odoo_config.json from the example.
