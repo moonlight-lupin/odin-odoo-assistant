@@ -30,16 +30,30 @@ class _StubFastMCP:
         raise RuntimeError("mcp.run() must not run in tests")
 
 
+class _StubTransportSecuritySettings:
+    """Stands in for the SDK's settings object: a record of what was asked for."""
+
+    def __init__(self, enable_dns_rebinding_protection=True,
+                 allowed_hosts=None, allowed_origins=None):
+        self.enable_dns_rebinding_protection = enable_dns_rebinding_protection
+        self.allowed_hosts = allowed_hosts or []
+        self.allowed_origins = allowed_origins or []
+
+
 def _install_mcp_stub():
     mcp_pkg = types.ModuleType("mcp")
     server_mod = types.ModuleType("mcp.server")
     fastmcp_mod = types.ModuleType("mcp.server.fastmcp")
+    security_mod = types.ModuleType("mcp.server.transport_security")
     fastmcp_mod.FastMCP = _StubFastMCP
+    security_mod.TransportSecuritySettings = _StubTransportSecuritySettings
     mcp_pkg.server = server_mod
     server_mod.fastmcp = fastmcp_mod
+    server_mod.transport_security = security_mod
     sys.modules.setdefault("mcp", mcp_pkg)
     sys.modules.setdefault("mcp.server", server_mod)
     sys.modules.setdefault("mcp.server.fastmcp", fastmcp_mod)
+    sys.modules.setdefault("mcp.server.transport_security", security_mod)
 
 
 _install_mcp_stub()

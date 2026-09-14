@@ -252,6 +252,28 @@ an audit log.
 * **The activity log names users, models and record ids.** It is a record of
   financial activity — treat access to it (and any export of it) accordingly.
 
+## Tests
+
+```bash
+# from the repo root — runs this module's suite and the independent server's
+python -m pytest -q
+
+# just this module
+python -m pytest odoo_module_mcp_server/tests -q
+```
+
+The suite is offline: the addon's real code runs against a fake `odoo`
+(`tests/_fake_odoo.py`), so there is no database to stand up. It covers the
+write guardrails, the JSON-RPC dispatch, the OAuth code exchange (PKCE, replay,
+expiry, redirect-URI matching), the activity log's write path, and **parity with
+the independent server** — the denylists and tool names of the two servers are
+compared directly, so a guardrail cannot quietly weaken on one side only.
+
+What it deliberately does **not** cover: view archs, xmlids, ORM behaviour and
+anything the database enforces. Install the module against a real Odoo 18 before
+trusting a release. Under Odoo's own test runner the fake-Odoo modules skip
+themselves and `test_log_utils` runs as an ordinary Odoo test.
+
 ## Adding your own tools
 
 In any module that depends on `odoo_module_mcp_server`, register a tool at import time:

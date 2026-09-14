@@ -4,8 +4,15 @@
 # functions) and so runs under both Odoo's test runner and a bare
 # `python -m pytest`.
 #
-# `test_mcp_log` is deliberately NOT imported here. It exercises the log
-# model's write path against a fake `odoo`, which only makes sense when the
-# real one is absent — under Odoo's runner those behaviours are exercised live
-# by any call through /mcp/v1. pytest still discovers it by filename.
+# The other modules here run the addon's real code against a FAKE odoo
+# (`_fake_odoo`), which only makes sense when the real one is absent — under
+# Odoo's runner those paths are exercised live instead. They are deliberately
+# NOT imported here (importing them would raise SkipTest during package import
+# and skip everything); pytest discovers them by filename:
+#
+#   test_generic_tools.py       the write guardrails and tool plumbing
+#   test_controller_protocol.py JSON-RPC dispatch at /mcp/v1
+#   test_oauth.py               PKCE, code replay, token expiry, redirect URIs
+#   test_mcp_log.py             the activity log's write path
+#   test_parity.py              this module vs. the independent server
 from . import test_log_utils
