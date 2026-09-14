@@ -1,4 +1,4 @@
-"""MCP settings — OAuth, structural-protection + no-delete slots.
+"""MCP settings — OAuth, structural-protection, no-delete and logging slots.
 
 Surfaced under Settings → General Settings → MCP Server. Stored as
 ir.config_parameter so they persist across restarts.
@@ -12,6 +12,9 @@ ir.config_parameter so they persist across restarts.
   are always allowed.
 * When record-deletion is off (the default), ``odoo_unlink`` is refused on
   every model — archive/cancel instead.
+* The activity log (``custom.mcp.log``) records every tool call. Its level,
+  whether argument payloads are stored, and how long rows are kept are all
+  settings here.
 """
 from odoo import api, fields, models
 
@@ -20,6 +23,9 @@ from odoo import api, fields, models
 # fine for agents.
 DEFAULT_ACCESS_TTL_MINUTES = 60
 DEFAULT_REFRESH_TTL_DAYS = 30
+
+# Ninety days covers a quarter-end review without the table growing unbounded.
+DEFAULT_LOG_RETENTION_DAYS = 90
 
 
 class ResConfigSettings(models.TransientModel):
@@ -74,12 +80,43 @@ class ResConfigSettings(models.TransientModel):
              "still work. Reads are always allowed. Turn this off only "
              "if you trust the agent to do anything its Odoo user can do.")
 
+    # -- Activity log ---------------------------------------------------
+    mcp_log_level = fields.Selection(
+        [('all', 'All calls'),
+         ('error', 'Failures and policy blocks only'),
+         ('off', 'Off')],
+        string='Activity logging',
+        config_parameter='odoo_module_mcp_server.log_level',
+        default='all',
+        help="What the MCP activity log records. 'All calls' is the full audit "
+             "trail — who ran which tool, against which records, and what "
+             "happened. 'Failures and policy blocks only' keeps just the calls "
+             "that errored or were refused by a guardrail, which is a small "
+             "fraction of the traffic. 'Off' records nothing.")
+
+    mcp_log_retention_days = fields.Integer(
+        string='Keep log entries for (days)',
+        config_parameter='odoo_module_mcp_server.log_retention_days',
+        default=DEFAULT_LOG_RETENTION_DAYS,
+        help="A daily job deletes entries older than this. Set 0 to keep the "
+             "trail forever — appropriate where auditors require an unbroken "
+             "record, but the table then grows without bound.")
+
+    mcp_log_payloads = fields.Boolean(
+        string='Log call arguments',
+        default=True,
+        help="On by default. Stores each call's arguments and a summary of its "
+             "result, with secrets redacted and long values truncated — this is "
+             "what lets you see WHAT an agent wrote, not just that it wrote. "
+             "Turn off to keep only the tool name, user, outcome and duration.")
+
     # ``config_parameter=`` cannot round-trip a Boolean whose default is True:
     # core ``set_values`` hands the Python False to ``set_param``, which unlinks
     # the row, and ``get_values`` then falls back to the field default — so the
     # switch springs back on and ``_check_writable`` never sees the 'False' it
     # tests for. Store the flag as an explicit string instead.
     PROTECT_STRUCTURAL_PARAM = 'odoo_module_mcp_server.protect_structural'
+    LOG_PAYLOADS_PARAM = 'odoo_module_mcp_server.log_payloads'
 
     @api.model
     def get_values(self):
@@ -87,6 +124,8 @@ class ResConfigSettings(models.TransientModel):
         params = self.env['ir.config_parameter'].sudo()
         res['mcp_protect_structural'] = params.get_param(
             self.PROTECT_STRUCTURAL_PARAM, default='True') != 'False'
+        res['mcp_log_payloads'] = params.get_param(
+            self.LOG_PAYLOADS_PARAM, default='True') != 'False'
         return res
 
     def set_values(self):
@@ -95,3 +134,12 @@ class ResConfigSettings(models.TransientModel):
         params.set_param(
             self.PROTECT_STRUCTURAL_PARAM,
             'True' if self.mcp_protect_structural else 'False')
+        params.set_param(
+            self.LOG_PAYLOADS_PARAM,
+            'True' if self.mcp_log_payloads else 'False')
+
+    def action_mcp_open_log(self):
+        """Open the activity log from the settings page."""
+        self.ensure_one()
+        return self.env['ir.actions.act_window']._for_xml_id(
+            'odoo_module_mcp_server.action_mcp_log')

@@ -15,7 +15,7 @@ Gate order (any failure aborts — nothing is packaged):
   4. Source/plugin drift: odin/playbooks and odin/references must be byte-identical to the
      plugin's copies (SKILL.md is ALLOWED to differ — the plugin one carries an extra
      OAuth-connector note — but its playbook table must match, which check 3 enforces).
-  5. Server policy tests: python -m pytest odoo-mcp/tests (skippable with --skip-tests;
+  5. Server policy + logging tests: both suites (skippable with --skip-tests;
      the suite pins the unlink block + protected-model blocklist the plugin relies on).
 
 Then builds:  odoo-assistant.plugin  (zip of odoo-assistant-plugin/ contents at zip root)
@@ -154,21 +154,32 @@ def check_drift() -> None:
 
 
 def run_tests(skip: bool) -> None:
-    print("[5/5] Server policy tests")
+    """Run both suites: the independent server's, and the Odoo module's Odoo-free unit tests.
+
+    Both are offline — the MCP SDK is stubbed in one, odoo is absent from the
+    other — so this stays a fast pre-package gate. Run from the repo root so the
+    root conftest.py (which keeps pytest from importing the addon package) applies.
+    """
+    print("[5/5] Server policy + logging tests")
     if skip:
         notes.append("server tests SKIPPED (--skip-tests)")
         print("  skip  --skip-tests given")
         return
-    r = subprocess.run([sys.executable, "-m", "pytest", str(ROOT / "odoo-mcp" / "tests"),
-                        "-q", "-p", "no:cacheprovider"],
-                       capture_output=True, text=True, cwd=str(ROOT / "odoo-mcp"))
-    tail = (r.stdout or r.stderr).strip().splitlines()
-    if r.returncode == 0:
-        ok(tail[-1] if tail else "pytest passed")
-    elif "No module named pytest" in (r.stdout + r.stderr):
-        fail("pytest is not installed (pip install pytest) — or re-run with --skip-tests")
-    else:
-        fail("server tests failed:\n        " + "\n        ".join(tail[-8:]))
+    for label, target, cwd in (
+        ("independent server", ROOT / "odoo-mcp" / "tests", ROOT / "odoo-mcp"),
+        ("Odoo module", ROOT / "odoo_module_mcp_server" / "tests", ROOT),
+    ):
+        r = subprocess.run([sys.executable, "-m", "pytest", str(target),
+                            "-q", "-p", "no:cacheprovider"],
+                           capture_output=True, text=True, cwd=str(cwd))
+        tail = (r.stdout or r.stderr).strip().splitlines()
+        if r.returncode == 0:
+            ok(f"{label}: " + (tail[-1] if tail else "pytest passed"))
+        elif "No module named pytest" in (r.stdout + r.stderr):
+            fail("pytest is not installed (pip install pytest) — or re-run with --skip-tests")
+            return
+        else:
+            fail(f"{label} tests failed:\n        " + "\n        ".join(tail[-8:]))
 
 
 def build() -> None:

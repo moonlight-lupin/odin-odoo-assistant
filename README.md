@@ -42,6 +42,7 @@ you can run code:
 | **Auth** | Per-user `username` + `api_key` at runtime (`odoo_connect`); not stored | Odoo **API key** (`Authorization: Bearer`) — always on; **OAuth 2.1 + PKCE** opt-in for Claude.ai connectors |
 | **Install** | Host the process; `url`+`db` in `odoo_config.json` | Drop the folder in an addons path and install the app |
 | **Report rendering** | HTTP render — *limited on Odoo Online* (use deep links) | **Native** — shares the logged-in session |
+| **Audit trail** | Rotating JSONL file + stderr; read back with `odoo_audit_tail` or `jq` | `custom.mcp.log` table with list/form views, filters and a retention cron |
 | **Best when** | You **can't install modules** (e.g. Odoo Online/SaaS) or want MCP kept outside Odoo | You **control the instance** (self-hosted / Odoo.sh) and want native, no separate hosting |
 
 **Shared policy controls (both ON by default):**
@@ -49,10 +50,15 @@ you can run code:
 - **No model tampering** — writes to technical/auth models blocked (schema, modules, views, actions,
   cron, automation, **`res.users`/`res.groups`/API keys**, mail templates/aliases). `ir.attachment`
   stays writable so file uploads work.
+- **Audit trail** — every tool call recorded: who, which tool, which records, the outcome
+  (**ok** / **blocked by policy** / **error**) and the duration. Secrets are redacted and payloads
+  truncated before anything is written, and logging can never break a call. Both forms use the same
+  redaction and truncation rules, so a record reads the same either way — see
+  **[Logging](#logging-audit-trail)**.
 
-**Option A — independent server (`odoo-mcp/`):** **15 tools** — connect/disconnect/whoami,
+**Option A — independent server (`odoo-mcp/`):** **16 tools** — connect/disconnect/whoami,
 search_read/search_count/read/**read_group**/**name_search**/fields_get, create/write/archive/cancel,
-render-report, execute. Config is split: `url`+`db` in `odoo_config.json` (set by the host via
+render-report, execute, **audit-tail**. Config is split: `url`+`db` in `odoo_config.json` (set by the host via
 `odoo-mcp/config_gui.py`); each user supplies **their own** credentials at runtime. See
 **[`odoo-mcp/README.md`](odoo-mcp/README.md)** for local install, the config GUI, Docker/Compose, the
 `.tar` distribution, and connecting a client.
@@ -207,6 +213,39 @@ Runs **inside** Odoo, serving JSON-RPC at `POST /mcp/v1`. Best when you **contro
 > Odin is MCP-form-agnostic — it calls the same `odoo_*` tools whether they come from the independent
 > server or the Odoo module.
 
+## Logging (audit trail)
+
+Both forms record every tool call. For a bookkeeping agent this is the point: it is the record of
+what was done in your books, by whom, and — because the controls above refuse things — what was
+attempted and stopped.
+
+| | **`odoo-mcp/` — independent server** | **`odoo_module_mcp_server/` — Odoo module** |
+|---|---|---|
+| **Where** | Rotating JSONL file + stderr | `custom.mcp.log` table |
+| **Read it** | `odoo_audit_tail` tool, or `jq` over the file | Settings → Technical → **MCP Activity Log** (filter, group, drill in) |
+| **Configure** | `MCP_AUDIT_LEVEL` / `MCP_AUDIT_LOG` env vars, or `audit_*` keys in `odoo_config.json` | Settings → General Settings → MCP Server → **Activity log** |
+| **Retention** | Size-based rotation (default 5 MiB × 4 files = 20 MiB ceiling) | Age-based: daily cron, default 90 days (0 = keep everything) |
+| **Also records** | Connection + authentication events | Rejected bearer tokens, protocol errors |
+
+Shared by both, and the reason a record reads the same either way:
+
+- **Credentials never land in the log.** Any key that looks like a secret (`api_key`, `password`,
+  `token`, `authorization`, …) is masked at every nesting depth.
+- **Payloads stay bounded.** Long strings and lists are truncated with explicit markers; a rendered
+  PDF becomes `<N bytes>`; a result set of records collapses to `{count, ids}`. A 400 KB report
+  download is a ~900-byte log record.
+- **Logging never breaks a call.** A broken sink degrades the record, not the operation.
+- **`blocked` ≠ `error`.** A guardrail refusal is filed separately from an Odoo fault, so you can
+  see what an agent tried to do and was stopped from doing.
+
+**Sizing:** a typical record is ~650 bytes, so 500 tool calls a day is ~10 MB a month. Read traffic
+dominates and changes nothing in your books — the module's **Writes only** filter, or `audit_level`
+/ `Failures and policy blocks only`, cuts that down sharply for review.
+
+> The trail names users, models and record ids. Treat it as a record of financial activity: the
+> file is gitignored, and the Odoo table is `base.group_system` **read-only** (append-only — the
+> model refuses `write()`; rows leave only via the retention cron).
+
 ## Hosting pitfalls — lessons from running this against real Odoo hosting
 
 Everything below was hit in practice (mostly on **Odoo Online / SaaS** behind Cloudflare, and when
@@ -307,9 +346,11 @@ this section exists so nobody re-debugs them.
 
 - **Hard controls** (enforced server-side, both ON by default): no `unlink` anywhere; no writes to
   technical/auth models (`ir.model*`, `ir.module*`, views, actions, cron, automation,
-  `res.users`/`res.groups`, mail templates/aliases). Pinned by **`odoo-mcp/tests/`** — 86 pytest
-  tests, fully offline (the MCP SDK is stubbed, Odoo is a fake recorder):
-  `python -m pytest odoo-mcp/tests -q`.
+  `res.users`/`res.groups`, mail templates/aliases). Pinned by **`odoo-mcp/tests/`**, together with
+  the logging interface (redaction, truncation, outcome classification, never-raise) — fully offline
+  (the MCP SDK is stubbed, Odoo is a fake recorder). The module's Odoo-free unit tests live in
+  **`odoo_module_mcp_server/tests/`**. Run both from the repo root: `python -m pytest -q`
+  (or one at a time: `python -m pytest odoo-mcp/tests -q`).
 - **Soft controls** (prompt-level: draft-only, confirm gates, tie-outs, credential hygiene) have
   behavioural evals in **`odin/evals/`** (E01–E10) — run the affected scenarios against a
   **sandbox** after changing a playbook; log outcomes in `odin/evals/results.md`.

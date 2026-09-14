@@ -1,10 +1,12 @@
 import datetime
 import json
 import logging
+import time
 
 from odoo import http
 from odoo.http import request
 
+from .. import log_utils
 from ..mcp_registry import McpRegistry
 
 _logger = logging.getLogger(__name__)
@@ -34,6 +36,11 @@ class McpController(http.Controller):
     standard Odoo API key (scope ``rpc``). (OAuth is not included in this
     build.) Every tool call runs as the key owner, so record rules and
     ir.model.access enforce what the caller can see and do.
+
+    Every call is also recorded in ``custom.mcp.log`` (Settings → Technical →
+    MCP Activity Log): who, which tool, the redacted arguments, the outcome
+    and the duration. Logging is best-effort by construction — it is written
+    on its own cursor and never propagates a failure into the response.
     """
 
     @http.route('/mcp/v1', type='http', auth='mcp', methods=['POST'],
@@ -89,6 +96,7 @@ class McpController(http.Controller):
             return self._error(req_id, error.code, error.message, error.data)
         except Exception as error:
             _logger.exception("MCP %s failed", method)
+            self._log_event('protocol_error', 'MCP %s failed' % method, error=error)
             if is_notification:
                 return None
             return self._error(req_id, INTERNAL_ERROR,
@@ -125,16 +133,23 @@ class McpController(http.Controller):
         if not tool:
             raise McpError(INVALID_PARAMS, 'Unknown tool: %s' % name)
         args = params.get('arguments') or {}
+        started = time.monotonic()
         try:
             value = tool['fn'](request.env, args)
         except Exception as error:
             # Tool execution errors are part of the MCP result, not a
             # protocol error — the client can show the message to the user.
             _logger.info("MCP tool %s raised: %s", name, error)
+            # A guardrail refusal is classified as 'blocked', not 'error', so an
+            # operator can tell "the agent tried and was stopped" apart from
+            # "Odoo errored".
+            self._log_call(name, args, log_utils.classify_error(error),
+                           started, error=error)
             return {
                 'content': [{'type': 'text', 'text': str(error)}],
                 'isError': True,
             }
+        self._log_call(name, args, 'ok', started, result=value)
         if isinstance(value, str):
             text = value
         else:
@@ -144,6 +159,28 @@ class McpController(http.Controller):
             'content': [{'type': 'text', 'text': text}],
             'isError': False,
         }
+
+    # ------------------------------------------------------------------
+    # Logging helpers
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _log_call(name, args, outcome, started, result=None, error=None):
+        """Record one tool call. Swallows everything — see custom.mcp.log."""
+        try:
+            request.env['custom.mcp.log'].sudo().log_call(
+                tool=name, args=args, outcome=outcome,
+                duration_ms=(time.monotonic() - started) * 1000,
+                result=result, error=error)
+        except Exception:
+            _logger.exception("MCP: logging tool call %s failed", name)
+
+    @staticmethod
+    def _log_event(kind, summary, error=None, detail=None):
+        try:
+            request.env['custom.mcp.log'].sudo().log_event(
+                kind, summary, error=error, detail=detail)
+        except Exception:
+            _logger.exception("MCP: logging event %s failed", kind)
 
     # ------------------------------------------------------------------
     # Serialisation helpers
