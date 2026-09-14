@@ -347,10 +347,17 @@ this section exists so nobody re-debugs them.
 - **Hard controls** (enforced server-side, both ON by default): no `unlink` anywhere; no writes to
   technical/auth models (`ir.model*`, `ir.module*`, views, actions, cron, automation,
   `res.users`/`res.groups`, mail templates/aliases). Pinned by **`odoo-mcp/tests/`**, together with
-  the logging interface (redaction, truncation, outcome classification, never-raise) — fully offline
-  (the MCP SDK is stubbed, Odoo is a fake recorder). The module's Odoo-free unit tests live in
-  **`odoo_module_mcp_server/tests/`**. Run both from the repo root: `python -m pytest -q`
-  (or one at a time: `python -m pytest odoo-mcp/tests -q`).
+  the logging interface and the tool plumbing — fully offline (the MCP SDK is stubbed, Odoo is a
+  fake recorder). The module's suite lives in **`odoo_module_mcp_server/tests/`** and runs its real
+  code against a fake `odoo`: the same guardrails, the JSON-RPC dispatch, the OAuth code exchange
+  (PKCE, replay, expiry, redirect-URI matching) and the activity log.
+- **Parity is tested, not assumed.** `odoo_module_mcp_server/tests/test_parity.py` compares the two
+  servers' write denylists and tool names directly, and fails if the module ever permits something
+  the independent server refuses — the safety posture must not depend on which form you deployed.
+  Intentional differences are listed in that file with their reasons.
+- Run everything from the repo root: `python -m pytest -q` (or one suite at a time:
+  `python -m pytest odoo-mcp/tests -q`). The module's suite does **not** cover view archs, xmlids or
+  ORM behaviour — install against a real Odoo 18 before trusting a release.
 - **Soft controls** (prompt-level: draft-only, confirm gates, tie-outs, credential hygiene) have
   behavioural evals in **`odin/evals/`** (E01–E10) — run the affected scenarios against a
   **sandbox** after changing a playbook; log outcomes in `odin/evals/results.md`.

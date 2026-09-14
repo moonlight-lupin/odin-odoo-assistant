@@ -1,99 +1,17 @@
-"""Behavioural tests for ``custom.mcp.log``'s write path.
-
-The model itself needs Odoo, so this runs it against a small fake: enough of
-``models.Model`` / ``fields`` / ``api.Environment`` for the class body to
-execute and ``log_call`` to run end to end. What that buys is coverage of the
-control flow that has no other test — gating, redaction, the payload toggle,
-and the two properties the design rests on:
-
-* **rows are written on a fresh cursor**, so a tool call that aborted the
-  request transaction still leaves a trail;
-* **logging never raises**, whatever the sink does.
-
-Under Odoo's own test runner these same behaviours are exercised for real by
-any call through /mcp/v1; this is the version that runs without a database.
-"""
 import json
-import sys
 import types
 import unittest
 
-# Belt and braces: this file stands the model up against a FAKE odoo, which is
-# only meaningful when the real one is absent. If a real Odoo is importable,
-# skip the module rather than subclassing a live model outside its registry.
-try:
-    import odoo as _odoo
-    _REAL_ODOO = hasattr(_odoo, 'addons')
-except ImportError:
-    _REAL_ODOO = False
+from . import _fake_odoo
 
-if _REAL_ODOO:                                              # pragma: no cover
+if _fake_odoo.real_odoo_present():                          # pragma: no cover
     raise unittest.SkipTest(
         "Runs only without Odoo installed — under Odoo's own test runner these "
         "behaviours are exercised live through /mcp/v1.")
 
-
-# ---------------------------------------------------------------------------
-# A fake `odoo` just large enough to import models/mcp_log.py
-# ---------------------------------------------------------------------------
-
-class _FakeField:
-    def __init__(self, *args, **kwargs):
-        pass
-
-
-def _install_fake_odoo():
-    if 'odoo' in sys.modules:
-        return
-    odoo = types.ModuleType('odoo')
-    fields_mod = types.SimpleNamespace(
-        Many2one=_FakeField, Selection=_FakeField, Char=_FakeField,
-        Integer=_FakeField, Boolean=_FakeField, Float=_FakeField,
-        Text=_FakeField, Datetime=types.SimpleNamespace(
-            now=lambda: 'NOW', subtract=lambda dt, **kw: 'CUTOFF'),
-    )
-
-    class Model:
-        _name = None
-
-    api_mod = types.SimpleNamespace(
-        model=lambda fn: fn,
-        Environment=lambda cr, uid, ctx: cr.env,
-    )
-    odoo._ = lambda text: text
-    odoo.api = api_mod
-    odoo.fields = fields_mod
-    odoo.models = types.SimpleNamespace(Model=Model, AbstractModel=Model)
-    odoo.SUPERUSER_ID = 1
-    exceptions = types.ModuleType('odoo.exceptions')
-
-    class UserError(Exception):
-        pass
-    exceptions.UserError = UserError
-    odoo.exceptions = exceptions
-    sys.modules['odoo'] = odoo
-    sys.modules['odoo.exceptions'] = exceptions
-    sys.modules['odoo.api'] = types.ModuleType('odoo.api')
-    sys.modules['odoo.api'].__dict__.update(vars(api_mod))
-
-
-_install_fake_odoo()
-
-import os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import log_utils                                             # noqa: E402
-sys.modules.setdefault('odoo_module_mcp_server', types.ModuleType('odoo_module_mcp_server'))
-sys.modules['odoo_module_mcp_server'].log_utils = log_utils
-
-import importlib.util                                         # noqa: E402
-_spec = importlib.util.spec_from_file_location(
-    'odoo_module_mcp_server.models.mcp_log',
-    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                 'models', 'mcp_log.py'))
-mcp_log = importlib.util.module_from_spec(_spec)
-mcp_log.__package__ = 'odoo_module_mcp_server.models'
-sys.modules['odoo_module_mcp_server.models'] = types.ModuleType('odoo_module_mcp_server.models')
-_spec.loader.exec_module(mcp_log)
+_fake_odoo.install()
+log_utils = _fake_odoo.load('log_utils')
+mcp_log = _fake_odoo.load('models.mcp_log')
 
 
 # ---------------------------------------------------------------------------
@@ -269,9 +187,9 @@ class RequestContextTests(unittest.TestCase):
     """Who/where is read off the live request — and must touch no database."""
 
     def setUp(self):
-        self.http = types.ModuleType('odoo.http')
-        sys.modules['odoo.http'] = self.http
-        self.addCleanup(sys.modules.pop, 'odoo.http', None)
+        import odoo.http
+        self.http = odoo.http
+        self.addCleanup(setattr, self.http, 'request', self.http.request)
 
     def _request(self, **attrs):
         class Cursor:

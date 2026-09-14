@@ -82,6 +82,16 @@ _STRUCTURAL_PREFIXES = (
     'base_automation.',     # server-side automation (executes code)
     'custom.mcp.oauth.',    # our own OAuth tables — never let the agent mint or
                             # revoke its own credentials
+    # Auth subtrees. The exact names below cover Odoo core's own models, but
+    # third-party addons extend these namespaces (res.users.role from a roles
+    # addon, res.users.apikeys.description in core) and every one of them is
+    # part of the privilege surface. Match the whole subtree, as the external
+    # server does — a guardrail that depends on enumerating models loses to the
+    # next addon installed.
+    'res.users.',
+    'res.groups.',
+    # Odoo Studio customisations are schema changes by another name.
+    'studio.',
 )
 
 # Exact model names that are off-limits even though they don't match a
@@ -105,7 +115,13 @@ _STRUCTURAL_EXACT = frozenset({
     # Mail templates can embed Python expressions; aliases route inbound mail
     'mail.template',
     'mail.alias',
+    # Automation rules execute server-side Python. The MODEL is 'base.automation'
+    # in Odoo 16+ (the MODULE is 'base_automation') — the dotted name is the one
+    # that actually exists on a live instance, so it must be listed explicitly:
+    # neither the 'base_automation.' prefix nor the bare module name matches it.
+    'base.automation',
     'base_automation',      # not all instances put automations under the prefix
+    'studio',               # bare name, alongside the 'studio.' prefix above
 })
 
 # Carve-outs: models matched by a prefix in ``_STRUCTURAL_PREFIXES`` that
