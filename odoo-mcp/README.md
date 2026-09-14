@@ -271,7 +271,7 @@ A record looks like this (one line, pretty-printed here):
   replaced with `***redacted***` before serialisation. The `session` block is a
   whitelist (url, db, uid, username): the API key is structurally absent from it.
 - **Payloads are bounded.** Strings over 512 chars and lists over 20 items are truncated
-  with an explicit marker, nesting deeper than 6 levels collapses, and byte payloads
+  with an explicit marker, nesting deeper than 8 levels collapses, and byte payloads
   (e.g. a rendered PDF) become `<N bytes>`. A result set of records is summarised to
   `{"type": "records", "count": N, "ids": [...]}` — the ids are what you need to pull the
   records back up; the field values are already in Odoo.
