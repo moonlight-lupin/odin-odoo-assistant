@@ -1,6 +1,6 @@
 {
     'name': 'MCP Server',
-    'version': '18.0.3.0.1',
+    'version': '18.0.4.0.0',
     'category': 'Productivity',
     'summary': 'Expose Odoo data and tools over the Model Context Protocol.',
     'description': """
@@ -35,6 +35,17 @@ OAuth 2.1 (opt-in): when enabled + an Issuer URL is set, the server exposes
 /oauth/token (authorization_code + refresh_token). When off, those return 404
 and /mcp/v1 accepts only the Odoo API-key bearer flow.
 
+Activity log: every tool call is recorded in custom.mcp.log (Settings →
+Technical → MCP Activity Log) — who called it, which tool, against which model
+and record ids, the outcome (OK / blocked by policy / access denied / error)
+and the duration, plus the redacted call arguments and a summary of the result.
+Rejected bearer tokens are recorded too. Rows are written on their own cursor,
+so a failed call still leaves a trail; secrets are masked and payloads
+truncated before storage; and logging can never break a request. Level,
+argument logging and retention (default 90 days, trimmed by a daily cron) are
+settings. The redaction and truncation rules match the external MCP server's,
+so a record reads the same whichever server produced it.
+
 Bridge modules can register more specialised tools via ``register_tool`` from
 ``odoo_module_mcp_server.mcp_registry``.
 """,
@@ -44,7 +55,9 @@ Bridge modules can register more specialised tools via ``register_tool`` from
     'depends': ['base', 'web'],
     'data': [
         'security/ir.model.access.csv',
+        'data/mcp_log_cron.xml',
         'views/oauth_consent_templates.xml',
+        'views/mcp_log_views.xml',
         'views/res_config_settings_views.xml',
     ],
     'installable': True,

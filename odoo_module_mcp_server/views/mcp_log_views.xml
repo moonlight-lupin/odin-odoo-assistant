@@ -1,0 +1,180 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!--
+        The MCP activity log: one row per tool call, plus authentication
+        failures and protocol errors. Read-only by construction — the model
+        refuses write(), and the ACL grants no create/write to anyone. Rows
+        arrive through the controller (on their own cursor) and leave through
+        the retention cron.
+    -->
+
+    <record id="view_mcp_log_list" model="ir.ui.view">
+        <field name="name">custom.mcp.log.list</field>
+        <field name="model">custom.mcp.log</field>
+        <field name="arch" type="xml">
+            <list string="MCP Activity" create="false" edit="false"
+                  default_order="create_date desc"
+                  decoration-danger="outcome in ('error', 'denied')"
+                  decoration-warning="outcome == 'blocked'"
+                  decoration-bf="is_write == True">
+                <field name="create_date" string="When"/>
+                <field name="user_id" widget="many2one_avatar_user"/>
+                <field name="tool"/>
+                <field name="model_name"/>
+                <field name="method" optional="hide"/>
+                <field name="record_ids" optional="show"/>
+                <field name="record_count" optional="hide" sum="Records"/>
+                <field name="is_write" widget="boolean_toggle" optional="hide"/>
+                <field name="outcome" widget="badge"
+                       decoration-success="outcome == 'ok'"
+                       decoration-warning="outcome == 'blocked'"
+                       decoration-danger="outcome in ('error', 'denied')"/>
+                <field name="duration_ms" string="ms" optional="show"
+                       digits="[12, 1]" sum="Total ms"/>
+                <field name="error_message" optional="hide"/>
+                <field name="auth_method" optional="hide"/>
+                <field name="remote_addr" optional="hide"/>
+                <field name="kind" column_invisible="True"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_mcp_log_form" model="ir.ui.view">
+        <field name="name">custom.mcp.log.form</field>
+        <field name="model">custom.mcp.log</field>
+        <field name="arch" type="xml">
+            <form string="MCP Activity" create="false" edit="false">
+                <sheet>
+                    <div class="oe_title">
+                        <h1><field name="summary" readonly="1"/></h1>
+                    </div>
+                    <group>
+                        <group string="Call">
+                            <field name="kind" readonly="1"/>
+                            <field name="tool" readonly="1"/>
+                            <field name="model_name" readonly="1"/>
+                            <field name="method" readonly="1"
+                                   invisible="not method"/>
+                            <field name="record_ids" readonly="1"
+                                   invisible="not record_ids"/>
+                            <field name="record_count" readonly="1"/>
+                            <field name="is_write" readonly="1"/>
+                        </group>
+                        <group string="Outcome">
+                            <field name="outcome" readonly="1"/>
+                            <field name="duration_ms" readonly="1"/>
+                            <field name="create_date" string="When" readonly="1"/>
+                            <field name="user_id" readonly="1"/>
+                            <field name="auth_method" readonly="1"/>
+                            <field name="remote_addr" readonly="1"/>
+                        </group>
+                    </group>
+                    <group string="Error" invisible="outcome == 'ok'">
+                        <field name="error_type" readonly="1"/>
+                        <field name="error_message" readonly="1"/>
+                    </group>
+                    <notebook>
+                        <page string="Arguments" name="arguments"
+                              invisible="not arguments">
+                            <field name="arguments" readonly="1"
+                                   widget="text" nolabel="1"/>
+                            <div class="text-muted">
+                                Secrets are redacted and long values truncated
+                                before storage.
+                            </div>
+                        </page>
+                        <page string="Result" name="result" invisible="not result">
+                            <field name="result" readonly="1"
+                                   widget="text" nolabel="1"/>
+                            <div class="text-muted">
+                                Record sets are summarised to a count plus ids —
+                                the field values are in the records themselves.
+                            </div>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_mcp_log_search" model="ir.ui.view">
+        <field name="name">custom.mcp.log.search</field>
+        <field name="model">custom.mcp.log</field>
+        <field name="arch" type="xml">
+            <search string="MCP Activity">
+                <field name="summary" string="Summary"
+                       filter_domain="['|', '|', ('summary', 'ilike', self), ('tool', 'ilike', self), ('model_name', 'ilike', self)]"/>
+                <field name="tool"/>
+                <field name="model_name"/>
+                <field name="user_id"/>
+                <field name="record_ids"/>
+
+                <filter name="writes" string="Writes only"
+                        domain="[('is_write', '=', True)]"
+                        help="Only the calls that changed data."/>
+                <separator/>
+                <filter name="failed" string="Failed"
+                        domain="[('outcome', 'in', ['error', 'denied'])]"/>
+                <filter name="blocked" string="Blocked by policy"
+                        domain="[('outcome', '=', 'blocked')]"
+                        help="Calls a guardrail refused before they reached the data."/>
+                <filter name="ok" string="Succeeded"
+                        domain="[('outcome', '=', 'ok')]"/>
+                <separator/>
+                <filter name="auth_failures" string="Authentication failures"
+                        domain="[('kind', '=', 'auth_failure')]"/>
+                <separator/>
+                <filter name="today" string="Today"
+                        domain="[('create_date', '>=', context_today().strftime('%Y-%m-%d'))]"/>
+                <filter name="last_7_days" string="Last 7 days"
+                        domain="[('create_date', '>=', (context_today() - datetime.timedelta(days=7)).strftime('%Y-%m-%d'))]"/>
+
+                <group expand="0" string="Group By">
+                    <filter name="group_tool" string="Tool"
+                            context="{'group_by': 'tool'}"/>
+                    <filter name="group_model" string="Model"
+                            context="{'group_by': 'model_name'}"/>
+                    <filter name="group_user" string="User"
+                            context="{'group_by': 'user_id'}"/>
+                    <filter name="group_outcome" string="Outcome"
+                            context="{'group_by': 'outcome'}"/>
+                    <filter name="group_day" string="Day"
+                            context="{'group_by': 'create_date:day'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_mcp_log" model="ir.actions.act_window">
+        <field name="name">MCP Activity Log</field>
+        <field name="res_model">custom.mcp.log</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_mcp_log_search"/>
+        <field name="context">{'search_default_last_7_days': 1}</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                No MCP activity recorded yet.
+            </p>
+            <p>
+                Every call an MCP client makes to this database is recorded
+                here — who ran which tool, against which records, what came
+                back, and how long it took. Calls a guardrail refused show as
+                <b>Blocked by policy</b>.
+            </p>
+            <p>
+                If this stays empty while clients are connecting, check
+                <i>Settings → General Settings → MCP Server → Activity
+                logging</i>.
+            </p>
+        </field>
+    </record>
+
+    <menuitem id="menu_mcp_log"
+              name="MCP Activity Log"
+              parent="base.menu_administration"
+              action="action_mcp_log"
+              groups="base.group_system"
+              sequence="90"/>
+
+</odoo>

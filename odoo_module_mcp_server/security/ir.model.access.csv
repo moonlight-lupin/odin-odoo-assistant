@@ -2,3 +2,4 @@ id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
 access_custom_mcp_oauth_client_admin,custom.mcp.oauth.client admin,model_custom_mcp_oauth_client,base.group_system,1,1,1,1
 access_custom_mcp_oauth_authorization_admin,custom.mcp.oauth.authorization admin,model_custom_mcp_oauth_authorization,base.group_system,1,1,1,1
 access_custom_mcp_oauth_token_admin,custom.mcp.oauth.token admin,model_custom_mcp_oauth_token,base.group_system,1,1,1,1
+access_custom_mcp_log_admin,custom.mcp.log admin read-only,model_custom_mcp_log,base.group_system,1,0,0,0

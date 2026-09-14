@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!--
+        Retention. Without this the log is an ever-growing table: the window is
+        a setting (Settings → General Settings → MCP Server), default 90 days,
+        and 0 keeps everything for instances whose auditors require an unbroken
+        trail.
+    -->
+    <record id="ir_cron_mcp_log_gc" model="ir.cron">
+        <field name="name">MCP: trim the activity log</field>
+        <field name="model_id" ref="model_custom_mcp_log"/>
+        <field name="user_id" ref="base.user_root"/>
+        <field name="state">code</field>
+        <field name="code">model._gc_logs()</field>
+        <field name="interval_number">1</field>
+        <field name="interval_type">days</field>
+        <field name="active" eval="True"/>
+    </record>
+</odoo>

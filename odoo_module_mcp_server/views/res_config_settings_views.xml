@@ -58,6 +58,61 @@
                             </div>
                         </setting>
                     </block>
+                    <block title="Activity log"
+                           name="odoo_module_mcp_server_logging_setting_container">
+                        <setting id="odoo_module_mcp_server_log_level_setting"
+                                 string="Activity logging"
+                                 help="Records every MCP tool call — who ran it,
+                                       which tool, against which records, what
+                                       happened and how long it took. This is
+                                       the audit trail for anything an agent
+                                       does in this database.">
+                            <field name="mcp_log_level"/>
+                            <div class="content-group"
+                                 invisible="mcp_log_level == 'off'">
+                                <div class="mt16">
+                                    <field name="mcp_log_payloads"/>
+                                    <label for="mcp_log_payloads"
+                                           string="Log call arguments"
+                                           class="o_light_label"/>
+                                    <div class="text-muted">
+                                        Stores each call's arguments and a
+                                        summary of its result — what was
+                                        written, not just that something was.
+                                        Secrets are redacted and long values
+                                        truncated before storage. Turn off to
+                                        keep only tool, user, outcome and
+                                        duration.
+                                    </div>
+                                </div>
+                                <div class="mt16">
+                                    <label for="mcp_log_retention_days"
+                                           string="Keep entries for (days)"
+                                           class="o_light_label"/>
+                                    <field name="mcp_log_retention_days"/>
+                                    <div class="text-muted">
+                                        A daily job deletes older entries.
+                                        <b>0</b> keeps the trail forever — use
+                                        that where auditors require an unbroken
+                                        record, but the table then grows
+                                        without bound.
+                                    </div>
+                                </div>
+                                <div class="mt16">
+                                    <button type="object"
+                                            name="action_mcp_open_log"
+                                            string="Open the activity log"
+                                            class="btn-link"
+                                            icon="fa-arrow-right"/>
+                                </div>
+                            </div>
+                            <div class="text-muted"
+                                 invisible="mcp_log_level != 'off'">
+                                Nothing is being recorded. Calls that write to
+                                your books will leave no trail.
+                            </div>
+                        </setting>
+                    </block>
                     <block title="Authentication"
                            name="odoo_module_mcp_server_auth_setting_container">
                         <setting id="odoo_module_mcp_server_api_key_only"

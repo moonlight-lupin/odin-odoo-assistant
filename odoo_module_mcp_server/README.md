@@ -162,6 +162,80 @@ servers. For an HTTP server like this one:
 
 (Some clients want `transport: "http"` or similar — consult the client docs.)
 
+## Activity log (audit trail)
+
+Every call through `/mcp/v1` is recorded in **Settings → Technical → MCP
+Activity Log**. This is the "what did the agent actually do in our books"
+record — and, because the write guardrails above refuse things, it is also the
+record of what it *tried* to do and was stopped from doing.
+
+Each entry holds:
+
+| Column | What it tells you |
+|--------|-------------------|
+| When / User / Client IP | who acted, from where, and how they authenticated (API key or OAuth) |
+| Tool / Model / Method | what was called |
+| Record IDs / Records | which records it targeted — follow them straight back into the model |
+| Write | true for the tools that change data, so you can filter out read traffic |
+| Outcome | **OK**, **Blocked by policy**, **Access denied**, or **Error** |
+| Duration | how long the call took |
+| Arguments / Result | the call payload, redacted and truncated (see below) |
+
+Authentication failures (rejected bearer tokens) and protocol errors are
+recorded too — a run of those is how a leaked or revoked key shows up.
+
+`Blocked by policy` is the one to watch: it means a guardrail refused the call
+*before it reached the data*, not that Odoo errored.
+
+### What is and isn't stored
+
+* **Credentials never land in the table.** Any key that looks like a secret —
+  `api_key`, `password`, `token`, `authorization`, `client_secret`, … at any
+  nesting depth — is replaced with `***redacted***` before storage. A rejected
+  bearer token is logged as an event, but the token itself is not written.
+* **Payloads are bounded.** Strings over 512 chars and lists over 20 items are
+  truncated with an explicit marker; byte payloads (e.g. a rendered PDF) become
+  `<N bytes>`; and a result set of records collapses to
+  `{"type": "records", "count": N, "ids": [...]}` — the ids are what you need to
+  pull the records back up, and the field values are already in Odoo. Odoo
+  x2many write payloads (`invoice_line_ids` → command triple → `tax_ids`) are
+  stored in full.
+* **Logging never breaks a request.** If the log cannot be written, the failure
+  goes to the Odoo log and the tool call proceeds.
+
+These rules are shared with the external MCP server (`odoo-mcp/audit.py`), so a
+record reads the same whichever server produced it.
+
+### Why rows survive a failed call
+
+Entries are written **on their own database cursor** and committed there. A tool
+that raised has left the request transaction dirty, Odoo rolls it back, and a row
+created on that cursor would vanish along with the failure — which is precisely
+the row an auditor wants. The settings reads, the insert and the commit all
+happen on a fresh cursor instead, so a broken log can never poison a working
+transaction either.
+
+### Settings
+
+Under **Settings → General Settings → MCP Server → Activity log**:
+
+| Setting | Default | Effect |
+|---------|---------|--------|
+| Activity logging | All calls | `All calls` / `Failures and policy blocks only` / `Off` |
+| Log call arguments | On | Off keeps only tool, user, outcome and duration |
+| Keep entries for (days) | 90 | A daily cron trims older rows. **0 keeps everything** — use where auditors require an unbroken trail, but the table then grows without bound |
+
+Read traffic dominates the volume and changes nothing in your books, so
+`Failures and policy blocks only` (or the **Writes only** filter in the list
+view) is usually what you want for review.
+
+### The log is append-only
+
+The model refuses `write()`, and the access rule grants `base.group_system`
+**read only** — no create, no write, no delete from the UI. Rows arrive through
+the endpoint and leave through the retention cron. An editable audit log is not
+an audit log.
+
 ## Security notes
 
 * **The API key is a credential.** Treat it like a password — anyone holding
@@ -175,6 +249,8 @@ servers. For an HTTP server like this one:
   is exposed in transit.
 * The endpoint uses `csrf=False` (it's an API, not a form) and runs without
   saving an Odoo session — each request is independent.
+* **The activity log names users, models and record ids.** It is a record of
+  financial activity — treat access to it (and any export of it) accordingly.
 
 ## Adding your own tools
 

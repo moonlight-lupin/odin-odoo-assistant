@@ -3,5 +3,6 @@
 from . import oauth_client
 from . import oauth_authorization
 from . import oauth_token
+from . import mcp_log
 from . import res_config_settings
 from . import ir_http
