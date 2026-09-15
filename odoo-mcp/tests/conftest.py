@@ -59,6 +59,7 @@ def _install_mcp_stub():
 _install_mcp_stub()
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import audit  # noqa: E402
 import server  # noqa: E402  (import after the stub, deliberately)
 
 
@@ -111,3 +112,27 @@ def session(fake_models, monkeypatch):
     }
     monkeypatch.setattr(server, "_state", state)
     return state
+
+
+# ---------- Keep the suite off the working tree ----------
+
+
+@pytest.fixture(autouse=True)
+def isolated_audit_sink(tmp_path, monkeypatch):
+    """No test may leave a real audit trail behind.
+
+    `configure(install=True)` sets a module-level `_ACTIVE` that outlives the
+    test that made it, and its unconfigured default is a file beside the config
+    — the repo root when pytest runs from there. So a single `configure({})`
+    anywhere in the suite silently turns every later tool-call test into a
+    writer of `mcp-audit.jsonl` in the working tree.
+
+    Point the default at `tmp_path` and put `_ACTIVE` back afterwards, so each
+    test starts from a clean sink and none of it reaches the repo.
+    """
+    monkeypatch.setenv("MCP_AUDIT_LOG", str(tmp_path / "autouse-audit.jsonl"))
+    previous = audit._ACTIVE
+    monkeypatch.setattr(audit, "_ACTIVE",
+                        audit.AuditLog(path=tmp_path / "autouse-active.jsonl"))
+    yield
+    audit._ACTIVE = previous

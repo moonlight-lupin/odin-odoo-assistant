@@ -223,6 +223,13 @@ class RequestContextTests(unittest.TestCase):
         self._request()
         self.assertEqual(self._context()['auth_method'], 'none')
 
+    def test_a_rejected_credential_is_not_attributed_to_a_user(self):
+        # Before a credential is accepted, request.env.user is still the public
+        # user. Stamping it would make a run of rejected bearer tokens — how a
+        # leaked or revoked key shows up — read as if that account made them.
+        self._request()
+        self.assertNotIn('user_id', self._context())
+
     def test_off_request_returns_nothing_rather_than_raising(self):
         self.http.request = None
         self.assertEqual(self._context(), {})

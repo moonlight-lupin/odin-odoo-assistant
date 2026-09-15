@@ -190,5 +190,71 @@ class TestArgumentFacets(unittest.TestCase):
         self.assertEqual(facets['record_count'], 0)
 
 
+
+
+class TestMappingsStayBounded(unittest.TestCase):
+    """Every container type must be capped. An unbounded one is not cosmetic:
+    ``odoo_fields_get`` on account.move returns ~350 field definitions, and
+    storing that whole dict in the Text column on every call bloats the table
+    for no audit value."""
+
+    def test_wide_mappings_are_truncated_with_a_marker(self):
+        schema = {'field_%03d' % i: {'type': 'char'} for i in range(350)}
+        out = log_utils.redact(schema)
+        self.assertEqual(len(out), log_utils.DEFAULT_MAX_KEYS + 1)  # +1: marker
+        self.assertEqual(out[log_utils.TRUNCATED_KEY],
+                         '[+%d more keys]' % (350 - log_utils.DEFAULT_MAX_KEYS))
+
+    def test_a_realistic_write_payload_is_kept_whole(self):
+        # The cap must not cost audit value: a create/write payload's breadth
+        # IS the record of what the agent wrote.
+        values = {'field_%02d' % i: i for i in range(40)}
+        out = log_utils.redact(values)
+        self.assertEqual(out, values)
+        self.assertNotIn(log_utils.TRUNCATED_KEY, out)
+
+    def test_nested_mappings_are_capped_too(self):
+        out = log_utils.redact({'values': {'f%03d' % i: i for i in range(200)}})
+        self.assertIn(log_utils.TRUNCATED_KEY, out['values'])
+
+    def test_secrets_are_still_masked_in_a_truncated_mapping(self):
+        payload = {'api_key': 'hunter2'}
+        payload.update({'f%03d' % i: i for i in range(200)})
+        self.assertNotIn('hunter2', json.dumps(log_utils.redact(payload)))
+
+    def test_summarised_results_are_bounded_as_well(self):
+        out = log_utils.summarize_result({'f%03d' % i: {'x': i} for i in range(200)})
+        self.assertIn(log_utils.TRUNCATED_KEY, out)
+
+
+class TestPolicyRefusalsAreClassifiedAsBlocked(unittest.TestCase):
+    """'blocked' vs 'error' is the whole point of the outcome column: an
+    operator needs to tell "the agent tried and the guardrail stopped it" from
+    "Odoo errored". A guardrail missing from _POLICY_MARKERS silently drops out
+    of the "Blocked by policy" filter. The messages below are generic_tools';
+    test_generic_tools cross-checks them against what it actually raises."""
+
+    GUARDRAIL_MESSAGES = [
+        "Refusing to modify structural model 'ir.ui.view' — MCP is in "
+        "transactional mode",
+        "Refusing to delete records — MCP record deletion is disabled",
+        "Refusing to call private method: '_write'",
+    ]
+
+    def test_every_guardrail_message_classifies_as_blocked(self):
+        for message in self.GUARDRAIL_MESSAGES:
+            with self.subTest(message=message[:40]):
+                self.assertEqual(log_utils.classify_error(ValueError(message)),
+                                 'blocked')
+
+    def test_an_ordinary_failure_is_still_an_error(self):
+        for message in ("Unknown model: 'nope.nope'",
+                        "Model 'account.move' has no method 'frobnicate'",
+                        'Report not found: account.report_invoice'):
+            with self.subTest(message=message):
+                self.assertEqual(log_utils.classify_error(ValueError(message)),
+                                 'error')
+
+
 if __name__ == '__main__':
     unittest.main()
