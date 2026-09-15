@@ -252,3 +252,154 @@ class TestPrivateMethodsBlocked:
             server.odoo_execute("account.move", method, [[1]])
             assert fake_models.calls, "%s should have reached Odoo" % method
 
+
+# ---------- SDK v2 transport wiring ----------
+
+
+class TestTransportWiring:
+    """In v1 the transport was configured by mutating `mcp.settings` before
+    calling run(); in v2 `settings` is gone and the same values are run()
+    arguments. Nothing covered that wiring, which is how the 1.x -> 2.x break
+    reached a built image unnoticed — the stub was of the old API and every
+    test passed. These assert what _run() actually asks the SDK for."""
+
+    @pytest.fixture()
+    def run_calls(self, monkeypatch):
+        """Record what _run() asks the SDK for, without ever serving.
+
+        Patches `run` on the server object rather than reading the stub's own
+        log, so these pass identically against the stub and against a real
+        installed SDK — and so _run() can never start a listener in a test.
+        """
+        calls: list[dict] = []
+        monkeypatch.setattr(
+            server.mcp, "run",
+            lambda transport="stdio", **kw: calls.append(dict(transport=transport, **kw)))
+        for var in ("MCP_TRANSPORT", "MCP_HOST", "MCP_PORT", "MCP_PATH",
+                    "MCP_ALLOWED_HOSTS"):
+            monkeypatch.delenv(var, raising=False)
+        return calls
+
+    def test_stdio_is_the_default_and_takes_no_options(self, run_calls):
+        server._run()
+        assert run_calls == [{"transport": "stdio"}]
+
+    def test_streamable_http_passes_host_port_and_path(self, run_calls, monkeypatch):
+        monkeypatch.setenv("MCP_TRANSPORT", "http")
+        monkeypatch.setenv("MCP_HOST", "127.0.0.1")
+        monkeypatch.setenv("MCP_PORT", "9001")
+        monkeypatch.setenv("MCP_PATH", "/odoo-mcp")
+        server._run()
+        call = run_calls[-1]
+        assert call["transport"] == "streamable-http"
+        assert call["host"] == "127.0.0.1"
+        assert call["port"] == 9001 and isinstance(call["port"], int)
+        assert call["streamable_http_path"] == "/odoo-mcp"
+
+    @pytest.mark.parametrize("alias", ["http", "streamable-http", "streamable_http"])
+    def test_every_http_alias_reaches_the_same_transport(self, run_calls, monkeypatch, alias):
+        monkeypatch.setenv("MCP_TRANSPORT", alias)
+        server._run()
+        assert run_calls[-1]["transport"] == "streamable-http"
+
+    def test_http_defaults_match_the_documented_ones(self, run_calls, monkeypatch):
+        monkeypatch.setenv("MCP_TRANSPORT", "http")
+        server._run()
+        call = run_calls[-1]
+        assert call["host"] == "0.0.0.0"     # container-reachable, as documented
+        assert call["port"] == 8000
+        assert call["streamable_http_path"] == "/mcp"
+
+    def test_sse_passes_host_and_port_but_no_http_path(self, run_calls, monkeypatch):
+        monkeypatch.setenv("MCP_TRANSPORT", "sse")
+        monkeypatch.setenv("MCP_PORT", "9002")
+        server._run()
+        call = run_calls[-1]
+        assert call["transport"] == "sse"
+        assert call["port"] == 9002
+        assert "streamable_http_path" not in call     # not an SSE option
+
+    def test_transport_security_reaches_the_sdk(self, run_calls, monkeypatch):
+        # The control that stops a reverse-proxied host being 421'd. It used to
+        # be set on mcp.settings; if it stopped being passed, the server would
+        # still start and only fail behind a tunnel.
+        monkeypatch.setenv("MCP_TRANSPORT", "http")
+        monkeypatch.setenv("MCP_ALLOWED_HOSTS", "odoo.example.com")
+        server._run()
+        security = run_calls[-1]["transport_security"]
+        assert security.enable_dns_rebinding_protection is True
+        assert "odoo.example.com" in security.allowed_hosts
+
+    def test_unset_allowed_hosts_disables_rebinding_checks(self, run_calls, monkeypatch):
+        monkeypatch.setenv("MCP_TRANSPORT", "http")
+        server._run()
+        security = run_calls[-1]["transport_security"]
+        assert security.enable_dns_rebinding_protection is False
+
+
+class TestSdkPin:
+    """The suite stubs the SDK, so it cannot notice a breaking SDK release on
+    its own. An UNBOUNDED requirement is what turned that blind spot into a
+    broken image when 2.0 landed, so pin the bound itself."""
+
+    def _requirement(self):
+        from pathlib import Path
+        text = (Path(__file__).resolve().parent.parent / "requirements.txt").read_text()
+        lines = [l.strip() for l in text.splitlines()
+                 if l.strip() and not l.strip().startswith("#")]
+        return next(l for l in lines if l.startswith("mcp"))
+
+    def test_the_mcp_requirement_has_an_upper_bound(self):
+        assert "<" in self._requirement(), (
+            "mcp is pinned without an upper bound — the next major release will "
+            "be installed into the image unnoticed, and the stub in conftest "
+            "means no test will fail until someone runs the container"
+        )
+
+    def test_the_pin_matches_the_api_the_code_imports(self):
+        from pathlib import Path
+        source = (Path(__file__).resolve().parent.parent / "server.py").read_text()
+        requirement = self._requirement()
+        if "mcp.server.mcpserver" in source:
+            assert ">=2" in requirement, "v2 import path but the pin allows v1"
+        elif "mcp.server.fastmcp" in source:
+            assert "<2" in requirement, "v1 import path but the pin allows v2"
+        else:
+            raise AssertionError("server.py imports the SDK from an unknown path")
+
+
+class TestAgainstTheRealSdk:
+    """Runs only where the real SDK is installed (the image, a dev machine with
+    requirements applied). This is the check the stub structurally cannot do:
+    that the API server.py targets actually exists in the pinned release."""
+
+    @pytest.fixture()
+    def real_sdk(self):
+        # conftest is the authority. "Is `mcp` importable?" is NOT the same
+        # question: a machine can have an OLD mcp installed, in which case the
+        # package is real but `mcp.server.mcpserver` is the stub — exactly the
+        # half-real state these tests exist to distinguish.
+        import conftest
+        if conftest.MCP_IS_STUBBED:
+            pytest.skip("SDK stubbed by conftest — no matching real install")
+
+    def test_the_server_entry_point_exists(self, real_sdk):
+        from mcp.server.mcpserver import MCPServer
+        assert callable(MCPServer)
+
+    def test_transport_security_settings_still_takes_our_arguments(self, real_sdk):
+        from mcp.server.transport_security import TransportSecuritySettings
+        settings = TransportSecuritySettings(
+            enable_dns_rebinding_protection=True,
+            allowed_hosts=["a.example"], allowed_origins=["https://a.example"])
+        assert settings.enable_dns_rebinding_protection is True
+
+    def test_run_accepts_the_options_we_pass(self, real_sdk):
+        import inspect
+        from mcp.server.mcpserver import MCPServer
+        http = inspect.signature(MCPServer.run_streamable_http_async).parameters
+        for option in ("host", "port", "streamable_http_path", "transport_security"):
+            assert option in http, "run_streamable_http_async dropped %s" % option
+        sse = inspect.signature(MCPServer.run_sse_async).parameters
+        for option in ("host", "port", "transport_security"):
+            assert option in sse, "run_sse_async dropped %s" % option
