@@ -23,6 +23,7 @@ if _fake_odoo.real_odoo_present():                          # pragma: no cover
 
 _fake_odoo.install()
 generic_tools = _fake_odoo.load('generic_tools')
+log_utils = _fake_odoo.load('log_utils')
 mcp_registry = _fake_odoo.load('mcp_registry')
 
 # -- load the independent server, stubbing the MCP SDK the same way its own
@@ -185,6 +186,72 @@ class TestToolSurfaceParity(unittest.TestCase):
         mod = set(mcp_registry.McpRegistry.tools())
         self.assertEqual(sorted(ext - mod), sorted(self.EXTERNAL_ONLY))
         self.assertEqual(sorted(mod - ext), sorted(self.MODULE_ONLY))
+
+
+
+
+class TestMethodGuardrailParity(unittest.TestCase):
+    """The denylist parity above compares MODELS. Guardrails also key off the
+    METHOD, and that dimension drifted unnoticed: the module refused private
+    methods and the external server did not, so `odoo_execute(model, '_write')`
+    — reaching around the write path, the access checks and the deletion
+    control — was refused on one server and executed on the other.
+    """
+
+    PRIVATE = ['_write', '_unlink', '_create', '__class__', '_name']
+
+    # Both helpers answer one question: was this refused BY POLICY? Not "did
+    # it raise" — a fake model lacking `action_post` also raises, and counting
+    # that as a refusal would test the harness rather than the guardrail.
+
+    def _external_refuses(self, model, method):
+        external._state.update({
+            'url': 'https://odoo.example', 'db': 'testdb', 'uid': 2,
+            'username': 't@example', 'api_key': 'k', 'models': None,
+            'allow_record_deletion': False, 'allow_model_changes': False,
+        })
+        try:
+            external._guard(model, method)
+        except external.GuardrailError:
+            return True          # the server's policy-refusal type
+        return False
+
+    def _module_refuses(self, model, method):
+        params = {'odoo_module_mcp_server.protect_structural': 'True',
+                  'odoo_module_mcp_server.allow_record_deletion': 'False'}
+        try:
+            generic_tools.odoo_execute(_fake_odoo.FakeEnv(params=params),
+                                       {'model': model, 'method': method})
+        except Exception as error:
+            # The module signals policy with the message, not the type — the
+            # same classification the activity log files the row under.
+            return log_utils.classify_error(error) == 'blocked'
+        return False
+
+    def test_private_methods_are_refused_on_both(self):
+        for method in self.PRIVATE:
+            for model in ('res.partner', 'account.move', 'res.users'):
+                with self.subTest(model=model, method=method):
+                    self.assertTrue(
+                        self._external_refuses(model, method),
+                        'the external server allows %s.%s' % (model, method))
+                    self.assertTrue(
+                        self._module_refuses(model, method),
+                        'the module allows %s.%s' % (model, method))
+
+    def test_unlink_is_refused_on_both(self):
+        for model in ('res.partner', 'account.move'):
+            with self.subTest(model=model):
+                self.assertTrue(self._external_refuses(model, 'unlink'))
+                self.assertTrue(self._module_refuses(model, 'unlink'))
+
+    def test_public_methods_are_allowed_on_both(self):
+        # The guardrails must agree on what is PERMITTED too — a server that
+        # refuses everything is trivially "safe" and useless.
+        for method in ('action_post', 'button_confirm', 'name_get'):
+            with self.subTest(method=method):
+                self.assertFalse(self._external_refuses('account.move', method))
+                self.assertFalse(self._module_refuses('account.move', method))
 
 
 if __name__ == '__main__':
