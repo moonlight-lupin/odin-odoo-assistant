@@ -43,11 +43,16 @@ import xmlrpc.client
 from pathlib import Path
 from typing import Any
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 import audit
 
-mcp = FastMCP("odoo-assistant")
+# SDK v2. `FastMCP` was renamed to `MCPServer` in mcp 2.0, and the mutable
+# `mcp.settings` object it carried is gone — host, port, path and transport
+# security are arguments to run() now (see _run). The decorator and the tool
+# signature introspection behind it are unchanged, so the tools below and the
+# audit wrapper around them are untouched by the move.
+mcp = MCPServer("odoo-assistant")
 
 _log = logging.getLogger(audit.LOGGER_NAME)
 
@@ -56,7 +61,7 @@ def _tool():
     """``@_tool()`` plus the audit trail.
 
     Every tool in this file is registered through here so no call path can
-    silently skip the log. ``audit_tool`` preserves the signature FastMCP
+    silently skip the log. ``audit_tool`` preserves the signature the SDK
     introspects, so the advertised schema is unchanged.
     """
     def decorator(fn):
@@ -878,16 +883,20 @@ def _run() -> None:
     _log.info("Odoo MCP server starting (transport=%s, audit=%s)",
               transport, audit.get().describe())
     if transport in ("http", "streamable-http", "streamable_http"):
-        mcp.settings.host = os.environ.get("MCP_HOST", "0.0.0.0")
-        mcp.settings.port = int(os.environ.get("MCP_PORT", "8000"))
-        mcp.settings.streamable_http_path = os.environ.get("MCP_PATH", "/mcp")
-        mcp.settings.transport_security = _transport_security()
-        mcp.run(transport="streamable-http")
+        mcp.run(
+            transport="streamable-http",
+            host=os.environ.get("MCP_HOST", "0.0.0.0"),
+            port=int(os.environ.get("MCP_PORT", "8000")),
+            streamable_http_path=os.environ.get("MCP_PATH", "/mcp"),
+            transport_security=_transport_security(),
+        )
     elif transport == "sse":
-        mcp.settings.host = os.environ.get("MCP_HOST", "0.0.0.0")
-        mcp.settings.port = int(os.environ.get("MCP_PORT", "8000"))
-        mcp.settings.transport_security = _transport_security()
-        mcp.run(transport="sse")
+        mcp.run(
+            transport="sse",
+            host=os.environ.get("MCP_HOST", "0.0.0.0"),
+            port=int(os.environ.get("MCP_PORT", "8000")),
+            transport_security=_transport_security(),
+        )
     else:
         mcp.run()
 

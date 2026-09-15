@@ -1,7 +1,8 @@
-# Pinned to the 1.x line deliberately. server.py is written against the v1 API
-# (`from mcp.server.fastmcp import FastMCP`); mcp 2.0 renamed FastMCP to
-# MCPServer and moved the module, so an unbounded `>=1.0` silently produced an
-# image whose server.py could not import at all. The test suite cannot catch
-# that — tests/conftest.py stubs the SDK — so the bound has to live here.
-# Moving to 2.x is a real migration, not a version bump.
-mcp[cli]>=1.0,<2
+# Bounded on both sides deliberately. server.py is written against the v2 API
+# (`from mcp.server.mcpserver import MCPServer`, transport options passed to
+# run()); v1 had FastMCP and a mutable `.settings`, and 3.0 may move things
+# again. An unbounded `>=2` would let the next major silently produce an image
+# whose server.py cannot import — which is exactly what `>=1.0` did when 2.0
+# landed. The test suite cannot catch that: tests/conftest.py stubs the SDK, so
+# the bound has to live here.
+mcp[cli]>=2,<3

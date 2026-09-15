@@ -33,9 +33,9 @@ _EXTERNAL = _fake_odoo.ADDON_DIR.parent / 'odoo-mcp'
 
 def _load_external_server():
     if 'mcp' not in sys.modules:
-        class _StubFastMCP:
+        class _StubMCPServer:
             def __init__(self, *a, **k):
-                self.settings = types.SimpleNamespace()
+                self.run_calls = []
 
             def tool(self, *a, **k):
                 return lambda fn: fn
@@ -45,12 +45,12 @@ def _load_external_server():
 
         pkg = types.ModuleType('mcp')
         server_mod = types.ModuleType('mcp.server')
-        fastmcp = types.ModuleType('mcp.server.fastmcp')
-        fastmcp.FastMCP = _StubFastMCP
+        mcpserver = types.ModuleType('mcp.server.mcpserver')
+        mcpserver.MCPServer = _StubMCPServer
         pkg.server = server_mod
-        server_mod.fastmcp = fastmcp
+        server_mod.mcpserver = mcpserver
         sys.modules.update({'mcp': pkg, 'mcp.server': server_mod,
-                            'mcp.server.fastmcp': fastmcp})
+                            'mcp.server.mcpserver': mcpserver})
     if str(_EXTERNAL) not in sys.path:
         sys.path.insert(0, str(_EXTERNAL))
     import server
