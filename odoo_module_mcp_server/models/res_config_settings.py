@@ -96,7 +96,6 @@ class ResConfigSettings(models.TransientModel):
 
     mcp_log_retention_days = fields.Integer(
         string='Keep log entries for (days)',
-        config_parameter='odoo_module_mcp_server.log_retention_days',
         default=DEFAULT_LOG_RETENTION_DAYS,
         help="A daily job deletes entries older than this. Set 0 to keep the "
              "trail forever — appropriate where auditors require an unbroken "
@@ -110,13 +109,24 @@ class ResConfigSettings(models.TransientModel):
              "what lets you see WHAT an agent wrote, not just that it wrote. "
              "Turn off to keep only the tool name, user, outcome and duration.")
 
-    # ``config_parameter=`` cannot round-trip a Boolean whose default is True:
-    # core ``set_values`` hands the Python False to ``set_param``, which unlinks
+    # ``config_parameter=`` cannot round-trip a FALSY value. Core ``set_values``
+    # normalises one to Python False before calling ``set_param``, which unlinks
     # the row, and ``get_values`` then falls back to the field default — so the
-    # switch springs back on and ``_check_writable`` never sees the 'False' it
-    # tests for. Store the flag as an explicit string instead.
+    # setting springs back to its default and the reader never sees what was
+    # saved. That bites two of the settings above:
+    #
+    # * a Boolean whose default is True (``protect_structural``, ``log_payloads``)
+    #   — switching it off would spring back on, and ``_check_writable`` would
+    #   never see the 'False' it tests for;
+    # * an Integer whose meaningful value is 0 (``log_retention_days``) — core
+    #   maps 0 to False for integer fields, so "keep the trail forever" would
+    #   silently revert to the 90-day default and the cron would start deleting
+    #   the very trail the operator asked to keep.
+    #
+    # So all three are stored as explicit strings and handled below instead.
     PROTECT_STRUCTURAL_PARAM = 'odoo_module_mcp_server.protect_structural'
     LOG_PAYLOADS_PARAM = 'odoo_module_mcp_server.log_payloads'
+    LOG_RETENTION_PARAM = 'odoo_module_mcp_server.log_retention_days'
 
     @api.model
     def get_values(self):
@@ -126,6 +136,7 @@ class ResConfigSettings(models.TransientModel):
             self.PROTECT_STRUCTURAL_PARAM, default='True') != 'False'
         res['mcp_log_payloads'] = params.get_param(
             self.LOG_PAYLOADS_PARAM, default='True') != 'False'
+        res['mcp_log_retention_days'] = self._retention_days(params)
         return res
 
     def set_values(self):
@@ -137,6 +148,21 @@ class ResConfigSettings(models.TransientModel):
         params.set_param(
             self.LOG_PAYLOADS_PARAM,
             'True' if self.mcp_log_payloads else 'False')
+        # str() not the raw int: 0 is a real setting ("keep forever"), and
+        # set_param unlinks the row for a Python falsy value but stores the
+        # string '0' happily.
+        params.set_param(
+            self.LOG_RETENTION_PARAM, str(self.mcp_log_retention_days or 0))
+
+    @api.model
+    def _retention_days(self, params):
+        """The stored retention window, or the default if it is absent/garbled."""
+        raw = params.get_param(self.LOG_RETENTION_PARAM,
+                               default=DEFAULT_LOG_RETENTION_DAYS)
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            return DEFAULT_LOG_RETENTION_DAYS
 
     def action_mcp_open_log(self):
         """Open the activity log from the settings page."""

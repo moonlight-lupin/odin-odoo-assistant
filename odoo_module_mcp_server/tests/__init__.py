@@ -14,5 +14,6 @@
 #   test_controller_protocol.py JSON-RPC dispatch at /mcp/v1
 #   test_oauth.py               PKCE, code replay, token expiry, redirect URIs
 #   test_mcp_log.py             the activity log's write path
+#   test_res_config_settings.py the settings round-trip (falsy values survive)
 #   test_parity.py              this module vs. the independent server
 from . import test_log_utils

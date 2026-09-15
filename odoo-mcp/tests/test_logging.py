@@ -318,3 +318,177 @@ class TestConfigure:
         assert handlers, "the diagnostic logger must have a handler installed"
         import sys
         assert all(getattr(h, "stream", sys.stderr) is not sys.stdout for h in handlers)
+
+
+# ---------- Regressions: the bounds and wiring the trail depends on ----------
+
+
+class TestPayloadsStayBounded:
+    """Every container type must be capped. An unbounded one is not cosmetic:
+    one huge record rotates the whole window away and evicts the write records
+    the trail exists to keep."""
+
+    def test_wide_mappings_are_truncated_with_a_marker(self):
+        # odoo_fields_get on account.move returns ~350 field definitions.
+        schema = {"field_%03d" % i: {"type": "char"} for i in range(350)}
+        out = audit.redact(schema)
+        assert len(out) == audit.DEFAULT_MAX_KEYS + 1     # +1 for the marker
+        assert out[audit.TRUNCATED_KEY] == "[+%d more keys]" % (
+            350 - audit.DEFAULT_MAX_KEYS)
+
+    def test_a_realistic_write_payload_is_kept_whole(self):
+        # The cap must not cost audit value: a create/write payload's breadth
+        # IS the record of what the agent wrote.
+        values = {"field_%02d" % i: i for i in range(40)}
+        out = audit.redact(values)
+        assert out == values
+        assert audit.TRUNCATED_KEY not in out
+
+    def test_nested_mappings_are_capped_too(self):
+        payload = {"values": {"f%03d" % i: i for i in range(200)}}
+        out = audit.redact(payload)
+        assert audit.TRUNCATED_KEY in out["values"]
+
+    def test_secrets_are_still_masked_in_a_truncated_mapping(self):
+        payload = {"api_key": "hunter2"}
+        payload.update({"f%03d" % i: i for i in range(200)})
+        out = audit.redact(payload)
+        assert "hunter2" not in json.dumps(out)
+
+    def test_a_record_larger_than_the_window_drops_its_payload(self, tmp_path):
+        log = audit.AuditLog(path=tmp_path / "a.jsonl", max_bytes=2048, backups=3)
+        log.tool_call("odoo_fields_get", {"model": "account.move"}, "ok", 1.0,
+                      result={"f%04d" % i: "x" * 400 for i in range(60)})
+        rows = read_lines(tmp_path / "a.jsonl")
+        assert len(rows) == 1
+        assert "result" not in rows[0]
+        assert "payload_dropped" in rows[0]
+        # The audit-relevant facts survive the trim.
+        assert rows[0]["tool"] == "odoo_fields_get"
+        assert rows[0]["outcome"] == "ok"
+
+    def test_an_oversized_record_does_not_churn_the_history(self, tmp_path):
+        path = tmp_path / "a.jsonl"
+        log = audit.AuditLog(path=path, max_bytes=2048, backups=3)
+        log.tool_call("odoo_write", {"model": "account.move", "ids": [1841]},
+                      "ok", 1.0, result=True)
+        for _ in range(3):
+            log.tool_call("odoo_fields_get", {"model": "account.move"}, "ok", 1.0,
+                          result={"f%04d" % i: "x" * 400 for i in range(60)})
+        # The earlier write is still in the live file — three oversized calls
+        # must not have rotated it out through all three backups.
+        tools = [row["tool"] for row in read_lines(path)]
+        assert "odoo_write" in tools
+
+    def test_the_cap_counts_bytes_not_characters(self, tmp_path):
+        path = tmp_path / "a.jsonl"
+        # A record whose CHARACTER count sits under the cap but whose UTF-8
+        # BYTE count does not: 300 three-byte characters is 900 bytes. Measured
+        # in characters the record looks small enough to keep its payload;
+        # measured in bytes \u2014 what actually lands on disk \u2014 it does not.
+        log = audit.AuditLog(path=path, max_bytes=700, backups=3)
+        log.tool_call("odoo_write", {"name": "\u4f1a" * 300}, "ok", 1.0,
+                      result=True)
+        rows = read_lines(path)
+        assert rows[0].get("payload_dropped"), (
+            "the size check counted characters, not the bytes written")
+        assert path.stat().st_size <= 700
+
+
+class TestSequenceNumbers:
+    def test_concurrent_records_never_share_a_seq(self, tmp_path):
+        import threading
+        log = audit.AuditLog(path=tmp_path / "a.jsonl")
+        barrier = threading.Barrier(8)
+
+        def emit():
+            barrier.wait()
+            for _ in range(25):
+                log.tool_call("odoo_read", {"model": "res.partner"}, "ok", 0.1,
+                              result=True)
+
+        threads = [threading.Thread(target=emit) for _ in range(8)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        seqs = [row["seq"] for row in read_lines(tmp_path / "a.jsonl")]
+        assert len(seqs) == 200
+        assert len(set(seqs)) == 200, "duplicate seq \u2014 the counter is unsynchronised"
+
+
+class TestDiagnosticLevelDoesNotGateTheAuditTrail:
+    """MCP_LOG_LEVEL is the DIAGNOSTIC control. Quietening connection chatter
+    must not silently switch the audit trail off: with MCP_AUDIT_LOG=off,
+    stderr is the only sink there is."""
+
+    @pytest.mark.parametrize("level", ["WARNING", "ERROR", "CRITICAL"])
+    def test_the_audit_mirror_stays_at_info(self, level, monkeypatch):
+        monkeypatch.setenv("MCP_LOG_LEVEL", level)
+        audit.setup_diagnostics()
+        assert logging.getLogger(audit.AUDIT_LOGGER_NAME).isEnabledFor(logging.INFO)
+        # ...while the diagnostic logger does follow the setting.
+        assert not logging.getLogger(audit.LOGGER_NAME).isEnabledFor(logging.INFO)
+
+    def test_records_still_reach_stderr_at_a_raised_level(self, monkeypatch):
+        monkeypatch.setenv("MCP_LOG_LEVEL", "ERROR")
+        audit.setup_diagnostics()
+        # Capture with a plain handler: caplog.at_level would RAISE the logger's
+        # level to INFO itself and hide the very bug under test.
+        captured: list[str] = []
+
+        class Capture(logging.Handler):
+            def emit(self, record):
+                captured.append(record.getMessage())
+
+        audit_logger = logging.getLogger(audit.AUDIT_LOGGER_NAME)
+        handler = Capture()
+        audit_logger.addHandler(handler)
+        try:
+            log = audit.AuditLog(path=None)      # stderr is the only sink
+            log.tool_call("odoo_write", {"model": "account.move"}, "ok", 1.0,
+                          result=True)
+        finally:
+            audit_logger.removeHandler(handler)
+        assert any("odoo_write" in message for message in captured), (
+            "MCP_LOG_LEVEL=ERROR silenced the audit trail's only sink")
+
+
+class TestToolSchemasSurviveWrapping:
+    """audit_tool must be invisible to FastMCP. functools.wraps cannot copy
+    __globals__, so without help FastMCP would resolve server.py's string
+    annotations (it uses `from __future__ import annotations`) against
+    audit.py's namespace, leniently enough to lose a parameter's schema."""
+
+    def test_annotations_resolve_in_the_tools_own_namespace(self):
+        import inspect
+        for name in ("odoo_search_read", "odoo_write", "odoo_execute",
+                     "odoo_render_report", "odoo_connect"):
+            tool = getattr(server, name)
+            signature = inspect.signature(tool)
+            for parameter in signature.parameters.values():
+                assert not isinstance(parameter.annotation, str), (
+                    "%s.%s is still an unresolved forward reference \u2014 FastMCP "
+                    "would evaluate it in the wrong module" % (name, parameter.name))
+            assert not isinstance(signature.return_annotation, str)
+
+    def test_a_tool_annotated_outside_audits_namespace_keeps_its_schema(self):
+        import inspect
+        # The failure mode in miniature: a type that exists in the tool's own
+        # module but NOT in audit.py.
+        namespace = {"__name__": "fake_server"}
+        exec("from __future__ import annotations\n"
+             "class Ledger: pass\n"
+             "def odoo_post(entry: Ledger) -> Ledger: return entry\n",
+             namespace)
+        wrapped = audit.audit_tool(namespace["odoo_post"])
+        annotation = inspect.signature(wrapped).parameters["entry"].annotation
+        assert annotation is namespace["Ledger"]
+
+    def test_an_unresolvable_annotation_degrades_instead_of_failing(self):
+        namespace = {"__name__": "fake_server"}
+        exec("from __future__ import annotations\n"
+             "def odoo_ghost(x: NeverDefined) -> None: return None\n",
+             namespace)
+        wrapped = audit.audit_tool(namespace["odoo_ghost"])   # must not raise
+        assert wrapped(1) is None

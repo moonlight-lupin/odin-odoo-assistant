@@ -7,8 +7,8 @@ The rules here mirror the external server's ``odoo-mcp/audit.py`` 1:1, so an
 audit record reads the same whichever server produced it:
 
 * any mapping key that looks like a secret is masked at every nesting depth;
-* long strings, long lists and deep nesting are truncated with an explicit
-  marker, so a reader can tell "short" from "shortened";
+* long strings, long lists, wide mappings and deep nesting are truncated with
+  an explicit marker, so a reader can tell "short" from "shortened";
 * a result set of records collapses to a count plus ids — the ids are what an
   auditor needs to pull the records back up, and the field values are already
   in Odoo;
@@ -19,8 +19,19 @@ audit record reads the same whichever server produced it:
 
 REDACTED = '***redacted***'
 
+# The key a truncated mapping carries its "…and N more" marker under. Not a
+# legal Odoo field name, so it can never collide with a real payload key.
+TRUNCATED_KEY = '…'
+
 DEFAULT_MAX_STRING = 512
 DEFAULT_MAX_ITEMS = 20
+# Mappings get their own, more generous cap. A write payload's breadth IS the
+# audit-relevant part — truncating `values` at 20 fields would hide what an
+# agent wrote — but it still has to be bounded: `odoo_fields_get` on
+# account.move returns ~350 field definitions, and storing that whole dict in
+# the Text column on every call bloats the table for no audit value.
+# 64 renders any realistic create/write payload whole and caps schema dumps.
+DEFAULT_MAX_KEYS = 64
 # Odoo x2many write payloads are legitimately deep — invoice_line_ids → command
 # triple → line values → tax_ids → command triple is 7 levels. 8 renders them
 # whole, which matters: which taxes were applied is audit-relevant.
@@ -46,10 +57,17 @@ WRITE_TOOLS = frozenset({
 })
 
 # Substrings identifying a guardrail refusal raised by generic_tools. These are
-# our own messages (``_check_writable`` / ``_check_deletable``), not Odoo's.
+# our own messages, not Odoo's, and every guardrail in generic_tools must appear
+# here — one that doesn't is filed as 'error' and drops out of the "Blocked by
+# policy" filter, which is exactly where an operator looks for attempts that
+# were stopped. test_generic_tools raises each guardrail for real and asserts
+# it classifies as 'blocked', so adding one without its marker fails the suite.
+#
+# By convention every guardrail message opens with "Refusing to …".
 _POLICY_MARKERS = (
-    'Refusing to modify structural model',
-    'Refusing to delete records',
+    'Refusing to modify structural model',   # _check_writable
+    'Refusing to delete records',            # _check_deletable
+    'Refusing to call private method',       # odoo_execute's private-method block
 )
 
 
@@ -58,19 +76,23 @@ def _is_secret_key(key):
 
 
 def redact(value, max_string=DEFAULT_MAX_STRING, max_items=DEFAULT_MAX_ITEMS,
-           max_depth=DEFAULT_MAX_DEPTH, _depth=0):
+           max_keys=DEFAULT_MAX_KEYS, max_depth=DEFAULT_MAX_DEPTH, _depth=0):
     """Return a copy of ``value`` safe to persist: secrets masked, size bounded."""
     if _depth > max_depth:
         return '…'
     if isinstance(value, dict):
-        return {
+        out = {
             key: (REDACTED if _is_secret_key(key)
-                  else redact(item, max_string, max_items, max_depth, _depth + 1))
-            for key, item in value.items()
+                  else redact(item, max_string, max_items, max_keys,
+                              max_depth, _depth + 1))
+            for key, item in list(value.items())[:max_keys]
         }
+        if len(value) > max_keys:
+            out[TRUNCATED_KEY] = '[+%d more keys]' % (len(value) - max_keys)
+        return out
     if isinstance(value, (list, tuple, set)):
         items = list(value)
-        kept = [redact(item, max_string, max_items, max_depth, _depth + 1)
+        kept = [redact(item, max_string, max_items, max_keys, max_depth, _depth + 1)
                 for item in items[:max_items]]
         if len(items) > max_items:
             kept.append('…[+%d more items]' % (len(items) - max_items))
@@ -84,10 +106,11 @@ def redact(value, max_string=DEFAULT_MAX_STRING, max_items=DEFAULT_MAX_ITEMS,
     if isinstance(value, bool) or isinstance(value, (int, float)) or value is None:
         return value
     # Dates, recordsets, opaque objects — repr it, bounded.
-    return redact(repr(value), max_string, max_items, max_depth, _depth)
+    return redact(repr(value), max_string, max_items, max_keys, max_depth, _depth)
 
 
-def summarize_result(value, max_string=DEFAULT_MAX_STRING, max_items=DEFAULT_MAX_ITEMS):
+def summarize_result(value, max_string=DEFAULT_MAX_STRING, max_items=DEFAULT_MAX_ITEMS,
+                     max_keys=DEFAULT_MAX_KEYS):
     """Condense a tool's return value for the log.
 
     Scalars pass through untouched — ``odoo_create`` returning ``1841`` is the
@@ -101,7 +124,7 @@ def summarize_result(value, max_string=DEFAULT_MAX_STRING, max_items=DEFAULT_MAX
             ids = [item.get('id') for item in items[:max_items]
                    if isinstance(item.get('id'), int)]
             return {'type': 'records', 'count': len(items), 'ids': ids}
-    return redact(value, max_string, max_items)
+    return redact(value, max_string, max_items, max_keys)
 
 
 def dump(value):

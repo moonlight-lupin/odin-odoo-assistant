@@ -196,15 +196,22 @@ class McpLog(models.Model):
             from odoo.http import request
             if not request:
                 return {}
+            # Set by ir_http once a credential is accepted; absent means the
+            # request never got that far (e.g. a rejected token).
+            auth_method = getattr(request, 'mcp_auth_method', None)
             context = {
-                # Set by ir_http once a credential is accepted; absent means
-                # the request never got that far (e.g. a rejected token).
-                'auth_method': getattr(request, 'mcp_auth_method', None) or 'none',
+                'auth_method': auth_method or 'none',
                 'remote_addr': request.httprequest.remote_addr,
             }
-            user = getattr(request.env, 'user', None)
-            if user and user.id:
-                context['user_id'] = user.id
+            # Only attribute the row to a user when a credential was actually
+            # accepted. Before that, request.env.user is still the public user,
+            # and stamping it would make every rejected bearer token — the
+            # signal that a key has leaked or been revoked — read in the list
+            # view as if that account had made the call.
+            if auth_method:
+                user = getattr(request.env, 'user', None)
+                if user and user.id:
+                    context['user_id'] = user.id
             return context
         except Exception:
             return {}

@@ -27,6 +27,7 @@ if _fake_odoo.real_odoo_present():                          # pragma: no cover
 
 _fake_odoo.install()
 generic_tools = _fake_odoo.load('generic_tools')
+log_utils = _fake_odoo.load('log_utils')
 
 FakeEnv = _fake_odoo.FakeEnv
 
@@ -314,6 +315,49 @@ class TestCreate(unittest.TestCase):
         result = generic_tools.odoo_create(
             e, {'model': 'account.move', 'values': [{'ref': 'A'}, {'ref': 'B'}]})
         self.assertEqual(result, [1, 2])
+
+
+
+
+class TestGuardrailRefusalsAreLoggableAsBlocked(unittest.TestCase):
+    """Cross-check: every refusal generic_tools raises must be recognised by
+    log_utils as a POLICY block, not a generic error.
+
+    Without this the two files drift silently — a new guardrail gets added
+    here, its message is not added to log_utils._POLICY_MARKERS, and the
+    attempt it refused disappears from the activity log's "Blocked by policy"
+    filter, which is exactly where an operator looks for what was stopped.
+    """
+
+    def _refusal(self, call):
+        with self.assertRaises(ValueError) as caught:
+            call()
+        return caught.exception
+
+    def test_the_structural_write_guardrail(self):
+        error = self._refusal(lambda: generic_tools.odoo_write(
+            env(), {'model': 'ir.ui.view', 'ids': [1], 'values': {'name': 'x'}}))
+        self.assertEqual(log_utils.classify_error(error), 'blocked')
+
+    def test_the_deletion_guardrail(self):
+        error = self._refusal(lambda: generic_tools.odoo_unlink(
+            env(), {'model': 'res.partner', 'ids': [1]}))
+        self.assertEqual(log_utils.classify_error(error), 'blocked')
+
+    def test_the_private_method_guardrail(self):
+        # The most security-relevant of the three: odoo_execute is the escape
+        # hatch, and '_write' is what a compromised agent would reach for.
+        error = self._refusal(lambda: generic_tools.odoo_execute(
+            env(), {'model': 'res.users', 'method': '_write', 'args': [[1]]}))
+        self.assertEqual(
+            log_utils.classify_error(error), 'blocked',
+            "the private-method refusal is filed as a generic error, so it "
+            "drops out of the activity log's 'Blocked by policy' filter")
+
+    def test_an_ordinary_tool_failure_is_not_dressed_up_as_a_block(self):
+        error = self._refusal(lambda: generic_tools.odoo_search_read(
+            env(known=['res.partner']), {'model': 'no.such.model'}))
+        self.assertEqual(log_utils.classify_error(error), 'error')
 
 
 if __name__ == '__main__':
