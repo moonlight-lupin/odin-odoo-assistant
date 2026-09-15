@@ -1,1 +1,7 @@
-mcp[cli]>=1.0
+# Pinned to the 1.x line deliberately. server.py is written against the v1 API
+# (`from mcp.server.fastmcp import FastMCP`); mcp 2.0 renamed FastMCP to
+# MCPServer and moved the module, so an unbounded `>=1.0` silently produced an
+# image whose server.py could not import at all. The test suite cannot catch
+# that — tests/conftest.py stubs the SDK — so the bound has to live here.
+# Moving to 2.x is a real migration, not a version bump.
+mcp[cli]>=1.0,<2
