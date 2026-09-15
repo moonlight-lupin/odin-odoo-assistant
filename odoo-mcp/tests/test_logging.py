@@ -492,3 +492,18 @@ class TestToolSchemasSurviveWrapping:
              namespace)
         wrapped = audit.audit_tool(namespace["odoo_ghost"])   # must not raise
         assert wrapped(1) is None
+
+
+class TestPrivateMethodRefusalIsAudited:
+    """Control 3 must reach the trail as a POLICY block, like the other two —
+    an operator triaging "did something try to reach around the guardrails?"
+    filters on outcome, and an ORM-internals attempt is exactly what they want
+    that filter to surface."""
+
+    def test_it_files_as_blocked_not_error(self, session, sink):
+        with pytest.raises(server.GuardrailError):
+            server.odoo_execute("res.users", "_write", [[2], {"login": "x"}])
+        rows = read_lines(sink.file_path)
+        assert rows[-1]["outcome"] == "blocked"
+        assert rows[-1]["tool"] == "odoo_execute"
+        assert rows[-1]["args"]["method"] == "_write"

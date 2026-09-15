@@ -202,3 +202,53 @@ class TestToolPlumbing:
         result = server.odoo_cancel("sale.order", [4])
         assert result["method"] == "button_cancel"
         assert [c["method"] for c in fake_models.calls] == ["action_cancel", "button_cancel"]
+
+
+# ---------- Control 3: no private methods ----------
+
+
+class TestPrivateMethodsBlocked:
+    """Odoo's `_`-prefixed methods are ORM internals. `_write` skips the
+    `write()` override chain — and with it the access checks, constraints and
+    tracking that make a change auditable — and `_unlink` reaches around the
+    deletion control entirely. This is the control that stops odoo_execute
+    being a way around the other two."""
+
+    PRIVATE = ["_write", "_unlink", "_create", "__class__", "_name", "_inherit",
+               "_compute_field", "__init__", "_search"]
+
+    @pytest.mark.parametrize("method", PRIVATE)
+    def test_private_methods_are_refused(self, session, fake_models, method):
+        with pytest.raises(server.GuardrailError, match="private method"):
+            server.odoo_execute("res.partner", method, [[1]])
+        assert fake_models.calls == [], "refused only AFTER reaching Odoo"
+
+    @pytest.mark.parametrize("method", PRIVATE)
+    def test_refused_on_ordinary_models_too(self, session, fake_models, method):
+        # Not a structural-model question: `_write` on res.partner is just as
+        # much a bypass of the write path as `_write` on ir.model.
+        with pytest.raises(server.GuardrailError):
+            server.odoo_execute("account.move", method, [[1]])
+        assert fake_models.calls == []
+
+    def test_an_empty_method_is_refused(self, session, fake_models):
+        with pytest.raises(server.GuardrailError, match="private method"):
+            server.odoo_execute("res.partner", "", [[1]])
+        assert fake_models.calls == []
+
+    def test_the_block_is_not_overridable(self, session, fake_models):
+        # Controls 1 and 2 have config escape hatches by design. This one does
+        # not: "let the agent call ORM internals" is not a posture anyone needs.
+        session["allow_model_changes"] = True
+        session["allow_record_deletion"] = True
+        with pytest.raises(server.GuardrailError, match="private method"):
+            server.odoo_execute("res.partner", "_write", [[1], {"name": "x"}])
+        assert fake_models.calls == []
+
+    def test_public_methods_still_pass(self, session, fake_models):
+        # The guardrail must not cost the escape hatch its purpose.
+        for method in ("action_post", "button_confirm", "name_get", "write"):
+            fake_models.calls.clear()
+            server.odoo_execute("account.move", method, [[1]])
+            assert fake_models.calls, "%s should have reached Odoo" % method
+

@@ -19,7 +19,7 @@ A finance assistant for **Odoo**, in two components:
 2. **`odin/`** — **Odin**, the skill that drives those tools: a set of detailed, finance-ops
    **playbooks** (bookkeeping, reconciliation, close, review, reporting) an AI executes on your behalf.
 
-The two MCP forms expose equivalent tools and enforce the **same two policy controls**, so Odin works
+The two MCP forms expose equivalent tools and enforce the **same policy controls**, so Odin works
 against either without changes.
 
 ```

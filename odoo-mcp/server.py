@@ -303,6 +303,25 @@ def _is_protected_model(model: str) -> bool:
 def _guard(model: str, method: str) -> None:
     """Enforce the deletion + model-tampering controls. Raises GuardrailError if blocked."""
     s = _state
+    # Control 3 — no private methods, ever.
+    #
+    # Odoo's `_`-prefixed methods are the ORM's own internals: `_write` skips the
+    # `write()` override chain (and with it the access checks, constraints and
+    # mail tracking that make an edit auditable), `_unlink` bypasses the deletion
+    # control above, and `__class__` / `_name` are reflection handles. None is a
+    # legitimate business action, and no tool in this file calls one — every
+    # internal _execute() below passes a public method name.
+    #
+    # Deliberately NOT overridable by a config flag, unlike controls 1 and 2:
+    # "let the agent call ORM internals" is not a posture anyone needs.
+    if not method or method.startswith("_"):
+        raise GuardrailError(
+            f"Refusing to call private method: '{method}' on {model}. Methods "
+            "starting with '_' are Odoo's ORM internals — they bypass the "
+            "access checks, constraints and tracking that make a change "
+            "auditable. Use the public API (odoo_write, odoo_create, "
+            "odoo_archive) or a public action method instead."
+        )
     # Control 2 — no hard deletes anywhere.
     if method == "unlink" and not s.get("allow_record_deletion", False):
         raise GuardrailError(
@@ -760,9 +779,11 @@ def odoo_execute(
     per-record user confirmation.
 
     Policy controls still apply: `unlink` is blocked everywhere (deletion disabled — use
-    odoo_archive / odoo_cancel), and writes to technical/structural models (ir.model*,
+    odoo_archive / odoo_cancel), writes to technical/structural models (ir.model*,
     ir.module*, ir.ui.view, ir.actions*, ir.cron, base.automation, …) are blocked
-    (model-tampering disabled). Both can be overridden in odoo_config.json.
+    (model-tampering disabled), and private `_`-prefixed methods are refused outright.
+    The first two can be overridden in odoo_config.json; the private-method block
+    cannot — it exists so this escape hatch cannot reach around the other two.
 
     Args:
         model: Odoo model name.
