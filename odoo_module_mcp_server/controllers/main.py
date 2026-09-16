@@ -122,6 +122,11 @@ class McpController(http.Controller):
                 'name': name,
                 'description': tool['description'],
                 'inputSchema': tool['input_schema'],
+                # The four behavioural hints. The registry guarantees all four
+                # are present and boolean, so this never advertises a partial
+                # set — a missing destructiveHint defaults to *true* per spec,
+                # which would mislabel every read tool.
+                'annotations': tool['annotations'],
             })
         return {'tools': tools}
 

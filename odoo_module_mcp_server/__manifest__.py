@@ -1,6 +1,6 @@
 {
     'name': 'MCP Server',
-    'version': '18.0.4.0.0',
+    'version': '18.0.5.0.0',
     'category': 'Productivity',
     'summary': 'Expose Odoo data and tools over the Model Context Protocol.',
     'description': """
@@ -46,8 +46,12 @@ argument logging and retention (default 90 days, trimmed by a daily cron) are
 settings. The redaction and truncation rules match the external MCP server's,
 so a record reads the same whichever server produced it.
 
+Every tool is advertised with all four MCP behavioural hints (readOnlyHint /
+destructiveHint / idempotentHint / openWorldHint), so a client can tell the user
+whether a call only reads the ledger or can overwrite it before it runs.
+
 Bridge modules can register more specialised tools via ``register_tool`` from
-``odoo_module_mcp_server.mcp_registry``.
+``odoo_module_mcp_server.mcp_registry``, which requires those four hints.
 """,
     'author': 'Odoo Expansions',
     'website': 'https://example.com',

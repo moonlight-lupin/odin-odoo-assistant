@@ -289,6 +289,10 @@ from odoo.addons.odoo_module_mcp_server.mcp_registry import register_tool
         'properties': {'foo': {'type': 'string'}},
         'required': ['foo'],
     },
+    annotations={
+        'readOnlyHint': True, 'destructiveHint': False,
+        'idempotentHint': True, 'openWorldHint': True,
+    },
 )
 def do_something(env, args):
     # `env` is the request env (already as the API user)
@@ -298,3 +302,32 @@ def do_something(env, args):
 The tool is advertised by `tools/list` and dispatched by `tools/call`. The
 function should return a JSON-serialisable value (recordsets and dates are
 auto-serialised).
+
+### Annotations are required
+
+All four of MCP's behavioural hints must be declared — registration raises a
+`ValueError` if any is missing or is not `True`/`False`. They are advisory
+metadata, but a host shows them to the user *before* it runs the tool, and the
+spec's defaults are pessimistic: with no annotations, `destructiveHint` reads
+as **true**, so an unannotated read tool is advertised as able to destroy data.
+
+| hint | set it `True` when… |
+| --- | --- |
+| `readOnlyHint` | the tool changes no state at all. Implies the next two are moot, but declare them anyway. |
+| `destructiveHint` | it can overwrite or discard data that already exists. Creating new records is **not** destructive; neither is archiving, which is the reversible stand-in for deletion. |
+| `idempotentHint` | calling it twice with the same arguments leaves the same state as calling it once. |
+| `openWorldHint` | it reaches the Odoo database (or anything else this module does not control). Effectively always `True` for a tool that touches records. |
+
+The shipped tools are annotated as follows; mirror the pattern:
+
+| tool | readOnly | destructive | idempotent |
+| --- | --- | --- | --- |
+| `odoo_whoami`, `odoo_models_list`, `odoo_fields_get`, `odoo_search_read`, `odoo_search_count`, `odoo_read`, `odoo_read_group`, `odoo_name_search`, `odoo_render_report` | ✅ | ❌ | ✅ |
+| `odoo_create` | ❌ | ❌ | ❌ |
+| `odoo_archive` | ❌ | ❌ | ✅ |
+| `odoo_write`, `odoo_cancel`, `odoo_unlink` | ❌ | ✅ | ✅ |
+| `odoo_execute` | ❌ | ✅ | ❌ |
+
+`odoo_execute` is the escape hatch, so it is annotated for the worst it can do,
+not the average call. The same table holds on the external server for the tool
+names the two share — `tests/test_parity.py` fails if they drift apart.

@@ -254,5 +254,48 @@ class TestMethodGuardrailParity(unittest.TestCase):
                 self.assertFalse(self._module_refuses('account.move', method))
 
 
+class TestAnnotationParity(unittest.TestCase):
+    """The same tool name must carry the same behavioural hints on both servers.
+
+    The repo's premise is that a client skill drives either server unchanged.
+    If `odoo_write` advertises `destructiveHint: true` on one and `false` on
+    the other, the warning the user sees before a write depends on which server
+    the site happens to have deployed — which is exactly the drift the rest of
+    this file exists to catch, applied to the hints rather than the denylist.
+    """
+
+    #: Only the external server has these: session management and its local
+    #: audit trail. In the module, the session IS the authenticated Odoo
+    #: request and the trail is custom.mcp.log, so neither is a tool.
+    EXTERNAL_ONLY = {'odoo_connect', 'odoo_disconnect', 'odoo_audit_tail'}
+
+    #: Only the module has these: it can enumerate ir.model in-process, and it
+    #: is the only side that offers a hard delete at all (the external server
+    #: has no odoo_unlink — deletion there only exists via odoo_execute, where
+    #: policy refuses it).
+    MODULE_ONLY = {'odoo_models_list', 'odoo_unlink'}
+
+    def _external(self):
+        return dict(external.TOOL_ANNOTATIONS)
+
+    def _module(self):
+        return {name: tool['annotations']
+                for name, tool in mcp_registry.McpRegistry.tools().items()}
+
+    def test_the_tool_surfaces_differ_only_where_recorded(self):
+        ext, mod = set(self._external()), set(self._module())
+        self.assertEqual(ext - mod, self.EXTERNAL_ONLY)
+        self.assertEqual(mod - ext, self.MODULE_ONLY)
+
+    def test_shared_tools_carry_identical_hints(self):
+        ext, mod = self._external(), self._module()
+        for name in sorted(set(ext) & set(mod)):
+            with self.subTest(tool=name):
+                self.assertEqual(
+                    ext[name], mod[name],
+                    'the servers disagree about what %s does to the database'
+                    % name)
+
+
 if __name__ == '__main__':
     unittest.main()
