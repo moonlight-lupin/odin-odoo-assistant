@@ -21,6 +21,28 @@ MCP server that wraps your Odoo XML-RPC API and exposes generic CRUD + escape-ha
 
 > There is **no delete tool** — see Controls below.
 
+Every tool is advertised with all four of MCP's behavioural hints, so a client
+can tell the user what a call will do before it runs it. Without them the spec's
+defaults apply, and `destructiveHint` defaults to **true** — an unannotated
+`odoo_search_read` would be advertised as able to destroy data.
+
+| tool | readOnly | destructive | idempotent | openWorld |
+| --- | --- | --- | --- | --- |
+| `odoo_whoami`, `odoo_search_read`, `odoo_search_count`, `odoo_read`, `odoo_read_group`, `odoo_name_search`, `odoo_fields_get`, `odoo_render_report` | ✅ | ❌ | ✅ | ✅ |
+| `odoo_audit_tail` | ✅ | ❌ | ✅ | ❌ (local file) |
+| `odoo_connect` | ❌ | ❌ | ✅ | ✅ |
+| `odoo_disconnect` | ❌ | ❌ | ✅ | ❌ (local session) |
+| `odoo_create` | ❌ | ❌ | ❌ | ✅ |
+| `odoo_archive` | ❌ | ❌ | ✅ | ✅ |
+| `odoo_write`, `odoo_cancel` | ❌ | ✅ | ✅ | ✅ |
+| `odoo_execute` | ❌ | ✅ | ❌ | ✅ |
+
+`odoo_archive` is not destructive: archiving is the *reversible* stand-in for
+deletion, which is the whole reason there is no delete tool. `odoo_execute` is
+annotated for the worst it can do, not the average call. The hints match the
+in-Odoo module's for every tool name the two servers share; `test_parity.py`
+fails if they drift apart.
+
 The read tools (`odoo_search_read` / `odoo_search_count` / `odoo_read` / `odoo_read_group` /
 `odoo_name_search`) take an optional **`company_id`** — when set, the read runs in that company's
 context so **company-dependent fields resolve**. In Odoo 18 `account.account.code` (and

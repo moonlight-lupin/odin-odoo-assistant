@@ -205,6 +205,10 @@ def _check_deletable(env):
         },
         'additionalProperties': False,
     },
+    annotations={
+        'readOnlyHint': True, 'destructiveHint': False,
+        'idempotentHint': True, 'openWorldHint': True,
+    },
 )
 def odoo_models_list(env, args):
     domain = []
@@ -242,6 +246,10 @@ def odoo_models_list(env, args):
         },
         'required': ['model'],
         'additionalProperties': False,
+    },
+    annotations={
+        'readOnlyHint': True, 'destructiveHint': False,
+        'idempotentHint': True, 'openWorldHint': True,
     },
 )
 def odoo_fields_get(env, args):
@@ -281,6 +289,10 @@ def odoo_fields_get(env, args):
         'required': ['model'],
         'additionalProperties': False,
     },
+    annotations={
+        'readOnlyHint': True, 'destructiveHint': False,
+        'idempotentHint': True, 'openWorldHint': True,
+    },
 )
 def odoo_search_read(env, args):
     model = _scoped(env, args)
@@ -306,6 +318,10 @@ def odoo_search_read(env, args):
         'required': ['model'],
         'additionalProperties': False,
     },
+    annotations={
+        'readOnlyHint': True, 'destructiveHint': False,
+        'idempotentHint': True, 'openWorldHint': True,
+    },
 )
 def odoo_search_count(env, args):
     model = _scoped(env, args)
@@ -325,6 +341,10 @@ def odoo_search_count(env, args):
         },
         'required': ['model', 'ids'],
         'additionalProperties': False,
+    },
+    annotations={
+        'readOnlyHint': True, 'destructiveHint': False,
+        'idempotentHint': True, 'openWorldHint': True,
     },
 )
 def odoo_read(env, args):
@@ -360,6 +380,10 @@ def odoo_read(env, args):
         'required': ['model', 'fields', 'groupby'],
         'additionalProperties': False,
     },
+    annotations={
+        'readOnlyHint': True, 'destructiveHint': False,
+        'idempotentHint': True, 'openWorldHint': True,
+    },
 )
 def odoo_read_group(env, args):
     model = _scoped(env, args)
@@ -391,6 +415,10 @@ def odoo_read_group(env, args):
         },
         'required': ['model'],
         'additionalProperties': False,
+    },
+    annotations={
+        'readOnlyHint': True, 'destructiveHint': False,
+        'idempotentHint': True, 'openWorldHint': True,
     },
 )
 def odoo_name_search(env, args):
@@ -430,6 +458,10 @@ def odoo_name_search(env, args):
         'required': ['model', 'values'],
         'additionalProperties': False,
     },
+    annotations={
+        'readOnlyHint': False, 'destructiveHint': False,
+        'idempotentHint': False, 'openWorldHint': True,
+    },
 )
 def odoo_create(env, args):
     _check_writable(env, args.get('model'))
@@ -453,6 +485,10 @@ def odoo_create(env, args):
         'required': ['model', 'ids', 'values'],
         'additionalProperties': False,
     },
+    annotations={
+        'readOnlyHint': False, 'destructiveHint': True,
+        'idempotentHint': True, 'openWorldHint': True,
+    },
 )
 def odoo_write(env, args):
     _check_writable(env, args.get('model'))
@@ -471,6 +507,10 @@ def odoo_write(env, args):
         },
         'required': ['model', 'ids'],
         'additionalProperties': False,
+    },
+    annotations={
+        'readOnlyHint': False, 'destructiveHint': True,
+        'idempotentHint': True, 'openWorldHint': True,
     },
 )
 def odoo_unlink(env, args):
@@ -502,6 +542,10 @@ def odoo_unlink(env, args):
         'required': ['model', 'method'],
         'additionalProperties': False,
     },
+    annotations={
+        'readOnlyHint': False, 'destructiveHint': True,
+        'idempotentHint': False, 'openWorldHint': True,
+    },
 )
 def odoo_execute(env, args):
     # The wild card: we don't know in advance whether the method writes, so when
@@ -532,6 +576,10 @@ def odoo_execute(env, args):
                 "this (in-Odoo) server the MCP client's API key already "
                 "authenticated you — there is NO separate odoo_connect step.",
     input_schema={'type': 'object', 'properties': {}, 'additionalProperties': False},
+    annotations={
+        'readOnlyHint': True, 'destructiveHint': False,
+        'idempotentHint': True, 'openWorldHint': True,
+    },
 )
 def odoo_whoami(env, args):
     user = env.user
@@ -563,6 +611,10 @@ def odoo_whoami(env, args):
         'required': ['model', 'ids'],
         'additionalProperties': False,
     },
+    annotations={
+        'readOnlyHint': False, 'destructiveHint': False,
+        'idempotentHint': True, 'openWorldHint': True,
+    },
 )
 def odoo_archive(env, args):
     _check_writable(env, args.get('model'))
@@ -574,8 +626,11 @@ def odoo_archive(env, args):
 @register_tool(
     name='odoo_cancel',
     description="Cancel workflow records via their cancel action (tries "
-                "action_cancel, then button_cancel). Non-destructive void for "
-                "invoices/bills, sale/purchase orders, pickings, payments, etc.",
+                "action_cancel, then button_cancel). Voids invoices/bills, "
+                "sale/purchase orders, pickings, payments, etc. without "
+                "deleting them — the record survives, but the state change "
+                "does not undo itself. Use odoo_archive for a reversible "
+                "'remove'.",
     input_schema={
         'type': 'object',
         'properties': {
@@ -584,6 +639,10 @@ def odoo_archive(env, args):
         },
         'required': ['model', 'ids'],
         'additionalProperties': False,
+    },
+    annotations={
+        'readOnlyHint': False, 'destructiveHint': True,
+        'idempotentHint': True, 'openWorldHint': True,
     },
 )
 def odoo_cancel(env, args):
@@ -614,6 +673,10 @@ def odoo_cancel(env, args):
         },
         'required': ['report_ref', 'ids'],
         'additionalProperties': False,
+    },
+    annotations={
+        'readOnlyHint': True, 'destructiveHint': False,
+        'idempotentHint': True, 'openWorldHint': True,
     },
 )
 def odoo_render_report(env, args):

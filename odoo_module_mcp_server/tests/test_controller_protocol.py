@@ -53,9 +53,16 @@ class ControllerCase(unittest.TestCase):
 
         self.controller = main.McpController()
 
-    def register(self, name, fn, description='test tool', schema=None):
+    #: Hints for the throwaway tools registered by these tests. The registry
+    #: requires all four, so the protocol tests have to supply them too.
+    HINTS = {'readOnlyHint': True, 'destructiveHint': False,
+             'idempotentHint': True, 'openWorldHint': False}
+
+    def register(self, name, fn, description='test tool', schema=None,
+                 annotations=None):
         mcp_registry.McpRegistry.register(
-            name, description, schema or {'type': 'object'}, fn)
+            name, description, schema or {'type': 'object'},
+            annotations or dict(self.HINTS), fn)
 
     def handle(self, message):
         return self.controller._handle_message(message)
@@ -90,6 +97,34 @@ class TestToolsList(ControllerCase):
             with self.subTest(tool=tool['name']):
                 self.assertTrue(tool['description'])
                 self.assertEqual(tool['inputSchema'].get('type'), 'object')
+
+    def test_every_tool_is_advertised_with_its_behavioural_hints(self):
+        """Hints the registry holds but tools/list drops reach nobody.
+
+        They are how a client tells the user 'this only reads' from 'this can
+        delete your entries' before it runs anything — and the spec's default
+        for a missing destructiveHint is *true*, so dropping them does not
+        fail safe, it just misinforms.
+        """
+        result = self.handle({'jsonrpc': '2.0', 'id': 2, 'method': 'tools/list'})
+        for tool in result['result']['tools']:
+            with self.subTest(tool=tool['name']):
+                hints = tool.get('annotations')
+                self.assertIsNotNone(hints,
+                                     '%s is advertised unannotated' % tool['name'])
+                self.assertEqual(
+                    set(hints),
+                    {'readOnlyHint', 'destructiveHint',
+                     'idempotentHint', 'openWorldHint'})
+                for key, value in hints.items():
+                    self.assertIsInstance(value, bool,
+                                          '%s.%s is not a bool' % (tool['name'], key))
+
+    def test_unlink_is_advertised_as_destructive(self):
+        result = self.handle({'jsonrpc': '2.0', 'id': 2, 'method': 'tools/list'})
+        unlink = next(t for t in result['result']['tools']
+                      if t['name'] == 'odoo_unlink')
+        self.assertTrue(unlink['annotations']['destructiveHint'])
 
     def test_tools_are_listed_in_a_stable_order(self):
         first = self.handle({'jsonrpc': '2.0', 'id': 1, 'method': 'tools/list'})

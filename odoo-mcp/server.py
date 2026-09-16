@@ -57,15 +57,59 @@ mcp = MCPServer("odoo-assistant")
 _log = logging.getLogger(audit.LOGGER_NAME)
 
 
-def _tool():
-    """``@_tool()`` plus the audit trail.
+# MCP's four behavioural hints. A host shows these to the user before it runs a
+# tool — "this only reads the ledger" against "this can overwrite a posted
+# entry" — and the spec's defaults are pessimistic: with no annotations at all,
+# `destructiveHint` reads as TRUE, so an unannotated odoo_search_read is
+# advertised as capable of destroying data. Every tool below therefore declares
+# all four explicitly; `_tool()` makes them a required argument so a new tool
+# cannot be added without deciding.
+#
+# The SDK wants them as a `ToolAnnotations`, which the offline test suite does
+# not have (it stubs the SDK — see tests/conftest.py), so they are kept here as
+# plain booleans and converted only when a real SDK is present. That also gives
+# the suite something to assert on either way; see tests/test_annotations.py.
+try:
+    from mcp.types import ToolAnnotations
+except ImportError:                                  # stubbed SDK, tests only
+    ToolAnnotations = None
+
+#: tool name -> the four hints, exactly as advertised.
+TOOL_ANNOTATIONS: dict[str, dict[str, bool]] = {}
+
+
+def _tool(*, read_only: bool, destructive: bool, idempotent: bool,
+          open_world: bool = True, audited: bool = True):
+    """``@mcp.tool()`` plus the behavioural hints and the audit trail.
 
     Every tool in this file is registered through here so no call path can
     silently skip the log. ``audit_tool`` preserves the signature the SDK
     introspects, so the advertised schema is unchanged.
+
+    Args:
+        read_only: the tool only reads; it changes no state anywhere.
+        destructive: it can overwrite or discard data that already exists.
+            Creating new records is not destructive; neither is archiving,
+            which is this server's reversible stand-in for deletion.
+        idempotent: calling it twice with the same arguments leaves the same
+            state as calling it once.
+        open_world: it reaches the live Odoo instance, whose contents this
+            server does not control. False only for the tools that never leave
+            this machine.
+        audited: False only for ``odoo_audit_tail`` — reading the log is not
+            an action on the books, and auditing it would make every read of
+            the trail grow the trail.
     """
     def decorator(fn):
-        return mcp.tool()(audit.audit_tool(fn))
+        hints = {
+            "readOnlyHint": read_only,
+            "destructiveHint": destructive,
+            "idempotentHint": idempotent,
+            "openWorldHint": open_world,
+        }
+        TOOL_ANNOTATIONS[fn.__name__] = hints
+        kwargs = {"annotations": ToolAnnotations(**hints)} if ToolAnnotations else {}
+        return mcp.tool(**kwargs)(audit.audit_tool(fn) if audited else fn)
     return decorator
 
 # ---------- Config & connection ----------
@@ -382,7 +426,7 @@ def _company_ctx(company_id: int | None) -> dict | None:
 
 # ---------- Tools ----------
 
-@_tool()
+@_tool(read_only=False, destructive=False, idempotent=True)
 def odoo_connect(username: str, api_key: str, db: str | None = None,
                  url: str | None = None) -> dict[str, Any]:
     """Authenticate to Odoo with the user's OWN credentials and start a session.
@@ -413,7 +457,8 @@ def odoo_connect(username: str, api_key: str, db: str | None = None,
     }
 
 
-@_tool()
+@_tool(read_only=False, destructive=False, idempotent=True,
+       open_world=False)
 def odoo_disconnect() -> dict[str, str]:
     """Clear the cached session so a different user can connect with their own credentials."""
     # Log before clearing, so the record still names who is being disconnected.
@@ -423,7 +468,7 @@ def odoo_disconnect() -> dict[str, str]:
     return {"status": "disconnected"}
 
 
-@_tool()
+@_tool(read_only=True, destructive=False, idempotent=True)
 def odoo_whoami() -> dict[str, Any]:
     """Return current connection details and the list of companies visible to the user.
 
@@ -443,7 +488,7 @@ def odoo_whoami() -> dict[str, Any]:
     }
 
 
-@_tool()
+@_tool(read_only=True, destructive=False, idempotent=True)
 def odoo_search_read(
     model: str,
     domain: list | None = None,
@@ -485,7 +530,7 @@ def odoo_search_read(
     return _execute(model, "search_read", [domain or []], kwargs)
 
 
-@_tool()
+@_tool(read_only=True, destructive=False, idempotent=True)
 def odoo_search_count(model: str, domain: list | None = None, company_id: int | None = None) -> int:
     """Count records matching a domain. Run this before search_read on large models.
 
@@ -499,7 +544,7 @@ def odoo_search_count(model: str, domain: list | None = None, company_id: int | 
     return _execute(model, "search_count", [domain or []], kwargs)
 
 
-@_tool()
+@_tool(read_only=True, destructive=False, idempotent=True)
 def odoo_read_group(
     model: str,
     domain: list | None = None,
@@ -548,7 +593,7 @@ def odoo_read_group(
     )
 
 
-@_tool()
+@_tool(read_only=True, destructive=False, idempotent=True)
 def odoo_name_search(
     model: str,
     name: str = "",
@@ -587,7 +632,7 @@ def odoo_name_search(
     return [{"id": rid, "display_name": label} for rid, label in rows]
 
 
-@_tool()
+@_tool(read_only=True, destructive=False, idempotent=True)
 def odoo_read(
     model: str,
     ids: list[int],
@@ -612,7 +657,7 @@ def odoo_read(
     return _execute(model, "read", [ids], kwargs)
 
 
-@_tool()
+@_tool(read_only=True, destructive=False, idempotent=True)
 def odoo_fields_get(model: str, attributes: list[str] | None = None) -> dict[str, dict]:
     """Discover the schema of any model — field names, types, required flags, relations.
 
@@ -627,7 +672,7 @@ def odoo_fields_get(model: str, attributes: list[str] | None = None) -> dict[str
     return _execute(model, "fields_get", [], {"attributes": attrs})
 
 
-@_tool()
+@_tool(read_only=False, destructive=False, idempotent=False)
 def odoo_create(model: str, values: dict) -> int:
     """Create a single record. Returns the new record ID.
 
@@ -644,7 +689,7 @@ def odoo_create(model: str, values: dict) -> int:
     return _execute(model, "create", [values])
 
 
-@_tool()
+@_tool(read_only=False, destructive=True, idempotent=True)
 def odoo_write(model: str, ids: list[int], values: dict) -> bool:
     """Update existing records. Returns True on success.
 
@@ -654,7 +699,7 @@ def odoo_write(model: str, ids: list[int], values: dict) -> bool:
     return _execute(model, "write", [ids, values])
 
 
-@_tool()
+@_tool(read_only=False, destructive=False, idempotent=True)
 def odoo_archive(model: str, ids: list[int], archive: bool = True) -> bool:
     """Archive or unarchive records — the non-destructive alternative to deletion.
 
@@ -672,14 +717,20 @@ def odoo_archive(model: str, ids: list[int], archive: bool = True) -> bool:
     return _execute(model, "write", [ids, {"active": not archive}])
 
 
-@_tool()
+@_tool(read_only=False, destructive=True, idempotent=True)
 def odoo_cancel(model: str, ids: list[int]) -> dict[str, Any]:
-    """Cancel workflow records via their cancel action — non-destructive alternative to delete.
+    """Cancel workflow records via their cancel action — the alternative to deleting them.
 
     Tries the model's standard cancel methods in order (`action_cancel`, then
     `button_cancel`). Use for workflow documents (invoices/bills, sales/purchase orders,
     pickings, etc.) that should be voided rather than deleted. This is a state transition —
     only call it when the user explicitly asks to cancel the specific record(s).
+
+    The record survives, which is why this exists instead of a delete tool — but it
+    carries `destructiveHint: true` all the same. Voiding a posted invoice is exactly
+    the kind of change a user should be warned about before it happens. `odoo_archive`
+    is the one that is genuinely reversible and additive-only: it flips `active` and
+    flips it back. Cancelling does not undo itself.
 
     Args:
         model: Odoo model name, e.g. "account.move", "sale.order".
@@ -705,7 +756,7 @@ def odoo_cancel(model: str, ids: list[int]) -> dict[str, Any]:
 _REPORT_EXT = {"pdf": "pdf", "html": "html", "text": "txt"}
 
 
-@_tool()
+@_tool(read_only=True, destructive=False, idempotent=True)
 def odoo_render_report(report_ref: str, ids: list[int], converter: str = "pdf") -> dict[str, Any]:
     """Render an Odoo QWeb report (`ir.actions.report`) to a file and return it as base64.
 
@@ -770,7 +821,7 @@ def odoo_render_report(report_ref: str, ids: list[int], converter: str = "pdf") 
     }
 
 
-@_tool()
+@_tool(read_only=False, destructive=True, idempotent=False)
 def odoo_execute(
     model: str,
     method: str,
@@ -802,7 +853,8 @@ def odoo_execute(
 # ---------- Logging interface ----------
 
 
-@mcp.tool()
+@_tool(read_only=True, destructive=False, idempotent=True,
+       open_world=False, audited=False)
 def odoo_audit_tail(limit: int = 50, tool: str | None = None,
                     outcome: str | None = None) -> dict[str, Any]:
     """Read back this server's audit trail — every tool call it has recorded.
