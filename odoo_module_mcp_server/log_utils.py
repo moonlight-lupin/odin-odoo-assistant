@@ -68,6 +68,7 @@ _POLICY_MARKERS = (
     'Refusing to modify structural model',   # _check_writable
     'Refusing to delete records',            # _check_deletable
     'Refusing to call private method',       # odoo_execute's private-method block
+    'Refusing to change the Odoo context workspace',  # context write guard
 )
 
 
@@ -155,6 +156,8 @@ def classify_error(error):
     """``blocked`` for a guardrail refusal, ``denied`` for access rights, else ``error``."""
     message = str(error)
     if any(marker in message for marker in _POLICY_MARKERS):
+        return 'blocked'
+    if type(error).__name__ == 'ContextPolicyError':   # context tools' refusals
         return 'blocked'
     if type(error).__name__ in ('AccessError', 'AccessDenied'):
         return 'denied'

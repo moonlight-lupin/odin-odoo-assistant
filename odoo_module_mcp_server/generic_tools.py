@@ -29,6 +29,7 @@ import base64
 
 from odoo.api import call_kw
 
+from .context_tools import check_workspace_execute, check_workspace_records
 from .mcp_registry import register_tool
 
 _MODEL_SCHEMA = {
@@ -466,6 +467,7 @@ def odoo_name_search(env, args):
 def odoo_create(env, args):
     _check_writable(env, args.get('model'))
     model = _model(env, args.get('model'))
+    check_workspace_records(env, model._name, values=args['values'])
     records = model.create(args['values'])
     if isinstance(args['values'], list):
         return records.ids
@@ -493,6 +495,7 @@ def odoo_create(env, args):
 def odoo_write(env, args):
     _check_writable(env, args.get('model'))
     model = _model(env, args.get('model'))
+    check_workspace_records(env, model._name, args['ids'], args['values'])
     return bool(model.browse(args['ids']).write(args['values']))
 
 
@@ -519,6 +522,7 @@ def odoo_unlink(env, args):
     _check_deletable(env)
     _check_writable(env, args.get('model'))
     model = _model(env, args.get('model'))
+    check_workspace_records(env, model._name, args['ids'])
     return bool(model.browse(args['ids']).unlink())
 
 
@@ -560,6 +564,8 @@ def odoo_execute(env, args):
         _check_deletable(env)
     if not hasattr(model, method):
         raise ValueError("Model '%s' has no method '%s'" % (model._name, method))
+    check_workspace_execute(env, model._name, method, args.get('args') or [],
+                            args.get('kwargs') or {})
     # call_kw mirrors execute_kw: for an instance method it browses args[0] as the
     # ids and calls the method on that recordset with the remaining args.
     return call_kw(model, method, args.get('args') or [], args.get('kwargs') or {})
@@ -619,6 +625,7 @@ def odoo_whoami(env, args):
 def odoo_archive(env, args):
     _check_writable(env, args.get('model'))
     model = _model(env, args.get('model'))
+    check_workspace_records(env, model._name, args['ids'])
     archive = args.get('archive', True)
     return bool(model.browse(args['ids']).write({'active': not archive}))
 
@@ -648,6 +655,7 @@ def odoo_archive(env, args):
 def odoo_cancel(env, args):
     _check_writable(env, args.get('model'))
     model = _model(env, args.get('model'))
+    check_workspace_records(env, model._name, args['ids'])
     records = model.browse(args['ids'])
     for method in ('action_cancel', 'button_cancel'):
         if hasattr(records, method):

@@ -1,0 +1,25 @@
+# Integration harness for the Odoo-context tools: a throwaway Odoo 18 with the
+# real MCP module and a Knowledge stand-in. Not for any real data.
+#   docker compose -p ctxtest up -d db
+#   docker compose -p ctxtest run --rm odoo odoo -d ctx -i odoo_module_mcp_server --without-demo=all --stop-after-init
+#   docker compose -p ctxtest up -d odoo
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: odoo
+      POSTGRES_PASSWORD: odoo
+      POSTGRES_DB: postgres
+  odoo:
+    image: odoo:18.0
+    depends_on: [db]
+    ports: ["18069:8069"]
+    environment:
+      HOST: db
+      USER: odoo
+      PASSWORD: odoo
+    command: ["odoo", "-d", "ctx", "--db-filter=^ctx$", "--addons-path=/mnt/extra-addons,/usr/lib/python3/dist-packages/odoo/addons"]
+    volumes:
+      - ./addons/knowledge:/mnt/extra-addons/knowledge:ro
+      - ../../odoo_module_mcp_server:/mnt/extra-addons/odoo_module_mcp_server:ro
+      - ./scripts:/mnt/scripts:ro

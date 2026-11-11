@@ -1,6 +1,6 @@
 {
     'name': 'MCP Server',
-    'version': '18.0.5.0.0',
+    'version': '18.0.6.0.0',
     'category': 'Productivity',
     'summary': 'Expose Odoo data and tools over the Model Context Protocol.',
     'description': """
@@ -50,14 +50,26 @@ Every tool is advertised with all four MCP behavioural hints (readOnlyHint /
 destructiveHint / idempotentHint / openWorldHint), so a client can tell the user
 whether a call only reads the ledger or can overwrite it before it runs.
 
+Odoo context (requires Odoo 18 Enterprise with the Knowledge app): four
+more tools serve QIP's Odoo context from a Knowledge workspace —
+odoo_context_for (company facts, resolved journals and routed articles),
+odoo_context_lookup (search or read one article), odoo_context_propose
+(file a proposal; Context contributor group) and
+odoo_context_apply_proposal (approve / reject; Context reviewer group).
+Articles are filtered to the caller's allowed companies. Set the workspace
+root article under Settings → MCP Server; from then on the generic write
+tools refuse to change articles under it, so every change is reviewed and
+logged.
+
 Bridge modules can register more specialised tools via ``register_tool`` from
 ``odoo_module_mcp_server.mcp_registry``, which requires those four hints.
 """,
     'author': 'Odoo Expansions',
     'website': 'https://example.com',
     'license': 'LGPL-3',  # links Odoo (LGPL-3); the rest of the repo is Apache-2.0
-    'depends': ['base', 'web'],
+    'depends': ['base', 'web', 'mail', 'account', 'knowledge'],
     'data': [
+        'security/context_groups.xml',
         'security/ir.model.access.csv',
         'data/mcp_log_cron.xml',
         'views/oauth_consent_templates.xml',

@@ -20,6 +20,7 @@ from __future__ import annotations
 import pytest
 
 import server
+from conftest import MCP_IS_STUBBED
 
 HINTS = ("readOnlyHint", "destructiveHint", "idempotentHint", "openWorldHint")
 
@@ -28,14 +29,14 @@ HINTS = ("readOnlyHint", "destructiveHint", "idempotentHint", "openWorldHint")
 READ_ONLY = {
     "odoo_whoami", "odoo_search_read", "odoo_search_count", "odoo_read_group",
     "odoo_name_search", "odoo_read", "odoo_fields_get", "odoo_render_report",
-    "odoo_audit_tail",
+    "odoo_audit_tail", "odoo_context_for", "odoo_context_lookup",
 }
 
 #: The tools that can overwrite or discard existing data, and so must carry
 #: `destructiveHint: true`. odoo_create only ever adds; odoo_archive is
 #: reversible by design (it is the *alternative* to deletion); odoo_connect and
 #: odoo_disconnect touch session state, not the books.
-DESTRUCTIVE = {"odoo_write", "odoo_cancel", "odoo_execute"}
+DESTRUCTIVE = {"odoo_write", "odoo_cancel", "odoo_execute", "odoo_context_apply_proposal"}
 
 #: Tools that never leave the machine: one clears cached session state, the
 #: other reads a local log file. Every other tool reaches a live Odoo.
@@ -101,7 +102,10 @@ class TestTheHintsMatchTheHandlers:
         assert actual == CLOSED_WORLD
 
 
-@pytest.mark.skipif(server.ToolAnnotations is None,
+# Gate on the stub, not on `ToolAnnotations` being importable: an OLD (v1) mcp
+# install provides mcp.types.ToolAnnotations while MCPServer is still stubbed,
+# and the test then has no real server to list tools from (see conftest).
+@pytest.mark.skipif(MCP_IS_STUBBED or server.ToolAnnotations is None,
                     reason="the SDK is stubbed; nothing to hand annotations to")
 class TestTheHintsReachTheSDK:
     """The registry is only a record — what matters is what `tools/list` says."""
