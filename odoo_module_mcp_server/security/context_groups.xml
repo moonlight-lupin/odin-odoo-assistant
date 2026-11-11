@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!--
+        Who may change the Odoo context workspace through the MCP tools.
+
+        * Contributors may call odoo_context_propose (files a proposal; nothing
+          approved changes).
+        * Reviewers may call odoo_context_apply_proposal (approve / reject). A
+          reviewer is also a contributor.
+
+        Membership is assigned by an administrator (Settings → Users); the
+        module ships the groups only. Agents cannot change group membership:
+        res.groups / res.users are on the structural denylist.
+    -->
+    <record id="module_category_mcp_context" model="ir.module.category">
+        <field name="name">MCP Odoo context</field>
+        <field name="description">Who may propose and approve changes to the Odoo context workspace in Knowledge through the MCP tools.</field>
+        <field name="sequence">90</field>
+    </record>
+
+    <record id="group_context_contributor" model="res.groups">
+        <field name="name">Context contributor</field>
+        <field name="category_id" ref="module_category_mcp_context"/>
+        <field name="comment">May propose changes to the Odoo context workspace (odoo_context_propose).</field>
+    </record>
+
+    <record id="group_context_reviewer" model="res.groups">
+        <field name="name">Context reviewer</field>
+        <field name="category_id" ref="module_category_mcp_context"/>
+        <field name="implied_ids" eval="[(4, ref('group_context_contributor'))]"/>
+        <field name="comment">May approve or reject proposals to the Odoo context workspace (odoo_context_apply_proposal). Also needs edit rights on the workspace in Knowledge.</field>
+    </record>
+
+</odoo>

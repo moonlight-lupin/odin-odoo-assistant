@@ -289,6 +289,15 @@ Then:
 Store `company_id` / `company_name` and reuse them in every domain filter and write
 payload for the rest of the session — do not re-prompt.
 
+**Then, if the `odoo_context_for` tool is available, call it with that `company_id`** (and a
+`task` when one fits: posting, bills, bank, elimination, review, reporting). It returns the
+company's live facts, its journals resolved live (own vs shared, with the posting procedure; bank
+journals own-only; the consolidation journal), the approved context articles from the Knowledge
+workspace, and warnings (year-end close, drift, stale articles). Treat it as the shared,
+authoritative instance context — prefer it over a local `odoo-context/` folder when both exist, and
+read any warning back to the user. To correct an article, use `odoo_context_propose` (never edit
+workspace articles with `odoo_write` — the server refuses); only a Context reviewer applies it.
+
 ---
 
 ## Safety Protocol

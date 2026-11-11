@@ -4,6 +4,9 @@
   "allow_record_deletion": false,
   "allow_model_changes": false,
 
+  "context_root_article_id": 0,
+  "context_stale_days": 90,
+
   "audit_log": "mcp-audit.jsonl",
   "audit_level": "all",
   "audit_payloads": true,

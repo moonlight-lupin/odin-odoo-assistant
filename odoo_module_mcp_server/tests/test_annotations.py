@@ -29,12 +29,13 @@ HINTS = ('readOnlyHint', 'destructiveHint', 'idempotentHint', 'openWorldHint')
 READ_ONLY = {
     'odoo_whoami', 'odoo_models_list', 'odoo_fields_get', 'odoo_search_read',
     'odoo_search_count', 'odoo_read', 'odoo_read_group', 'odoo_name_search',
-    'odoo_render_report',
+    'odoo_render_report', 'odoo_context_for', 'odoo_context_lookup',
 }
 
 #: Overwrite or discard what is already there. odoo_create only adds;
 #: odoo_archive is the reversible stand-in for deletion.
-DESTRUCTIVE = {'odoo_write', 'odoo_cancel', 'odoo_unlink', 'odoo_execute'}
+DESTRUCTIVE = {'odoo_write', 'odoo_cancel', 'odoo_unlink', 'odoo_execute',
+               'odoo_context_apply_proposal'}
 
 
 class TestEveryToolIsAnnotated(unittest.TestCase):

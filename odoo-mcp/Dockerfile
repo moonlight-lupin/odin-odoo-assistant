@@ -18,7 +18,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Application code + example config template + entrypoint.
-COPY server.py audit.py odoo_config.example.json ./
+COPY server.py audit.py context_core.py odoo_config.example.json ./
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 

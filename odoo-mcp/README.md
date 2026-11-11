@@ -18,6 +18,10 @@ MCP server that wraps your Odoo XML-RPC API and exposes generic CRUD + escape-ha
 - `odoo_render_report` — render a QWeb report (pdf/html/text) over HTTP and return it as base64
 - `odoo_execute` — generic escape hatch for any model.method (policy controls still apply)
 - `odoo_audit_tail` — read back the server's own audit trail (local file only; touches no Odoo data)
+- `odoo_context_for` — company facts, resolved journals and the routed Odoo-context articles (see below)
+- `odoo_context_lookup` — search the Odoo-context workspace, or read one article
+- `odoo_context_propose` — file a proposal to change the workspace (Context contributor group)
+- `odoo_context_apply_proposal` — approve / reject a proposal (Context reviewer group)
 
 > There is **no delete tool** — see Controls below.
 
@@ -36,6 +40,9 @@ defaults apply, and `destructiveHint` defaults to **true** — an unannotated
 | `odoo_archive` | ❌ | ❌ | ✅ | ✅ |
 | `odoo_write`, `odoo_cancel` | ❌ | ✅ | ✅ | ✅ |
 | `odoo_execute` | ❌ | ✅ | ❌ | ✅ |
+| `odoo_context_for`, `odoo_context_lookup` | ✅ | ❌ | ✅ | ✅ |
+| `odoo_context_propose` | ❌ | ❌ | ❌ | ✅ |
+| `odoo_context_apply_proposal` | ❌ | ✅ | ❌ | ✅ |
 
 `odoo_archive` is not destructive: archiving is the *reversible* stand-in for
 deletion, which is the whole reason there is no delete tool. `odoo_execute` is
@@ -48,6 +55,33 @@ The read tools (`odoo_search_read` / `odoo_search_count` / `odoo_read` / `odoo_r
 context so **company-dependent fields resolve**. In Odoo 18 `account.account.code` (and
 `display_name`) is computed per company, so without `company_id` it comes back blank for any
 non-default company. Pass the owning company id to get `code`/`display_name` like `12501 Prepayments`.
+
+## Odoo context tools
+
+The four `odoo_context_*` tools serve the Odoo context from a Knowledge workspace. **They need the
+database to run Odoo 18 Enterprise with Knowledge and the in-Odoo MCP module installed** (the module
+ships the two security groups and is the reference for set-up — see its README, "Odoo context").
+The logic is `context_core.py`, byte-identical to the module's copy (the tests fail if they drift),
+so both routes return the same answers. Configure in `odoo_config.json`:
+
+```json
+"context_root_article_id": 123,
+"context_stale_days": 90
+```
+
+While `context_root_article_id` is unset or 0 the context tools report that the workspace is not
+configured and the workspace write guard is off. Once set, `odoo_create` / `odoo_write` /
+`odoo_archive` / `odoo_cancel` / `odoo_execute` refuse to change any article under the root (or its
+member rows) — changes go through propose → apply.
+
+Differences from the in-Odoo module, because this server calls Odoo from outside as the user:
+
+* **No elevated rights.** To propose through this server, a contributor needs **Can edit** on the
+  Proposals folder in Knowledge.
+* **Advisory checks.** The contributor / reviewer group checks and the company filter run here;
+  someone holding the API key could call XML-RPC directly. On this route, Odoo rights and Knowledge
+  permissions are what actually bind.
+* **Chatter** notes are posted as plain text (over RPC a string body is escaped).
 
 ## Folder layout
 

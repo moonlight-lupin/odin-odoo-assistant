@@ -80,6 +80,22 @@ class ResConfigSettings(models.TransientModel):
              "still work. Reads are always allowed. Turn this off only "
              "if you trust the agent to do anything its Odoo user can do.")
 
+    # -- Odoo context (Knowledge workspace) -----------------------------
+    mcp_context_root_article_id = fields.Integer(
+        string='Context workspace root article',
+        config_parameter='odoo_module_mcp_server.context_root_article_id',
+        help="Id of the Knowledge article at the top of the Odoo context "
+             "workspace. The odoo_context_* tools read and write only under it, "
+             "and the generic write tools refuse to change anything under it. "
+             "Leave empty (0) until the workspace has been imported: while it is "
+             "empty the context tools are off and so is the write guard.")
+    mcp_context_stale_days = fields.Integer(
+        string='Context stale after (days)',
+        config_parameter='odoo_module_mcp_server.context_stale_days',
+        default=90,
+        help="odoo_context_for flags a routed article whose verified-on date is "
+             "older than this.")
+
     # -- Activity log ---------------------------------------------------
     mcp_log_level = fields.Selection(
         [('all', 'All calls'),

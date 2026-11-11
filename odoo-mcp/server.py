@@ -46,6 +46,7 @@ from typing import Any
 from mcp.server.mcpserver import MCPServer
 
 import audit
+import context_core
 
 # SDK v2. `FastMCP` was renamed to `MCPServer` in mcp 2.0, and the mutable
 # `mcp.settings` object it carried is gone — host, port, path and transport
@@ -304,7 +305,7 @@ class GuardrailError(RuntimeError):
 # A guardrail refusal is a *policy* outcome, not a fault — the audit trail files
 # it as "blocked" so operators can tell "the agent tried and was stopped" apart
 # from "Odoo errored".
-audit.register_policy_errors(GuardrailError)
+audit.register_policy_errors(GuardrailError, context_core.ContextPolicyError)
 
 
 # Structural/technical models that define the schema, modules, UI, automation and
@@ -341,6 +342,7 @@ _READONLY_METHODS = frozenset({
     "default_get", "exists",
     # access-introspection (read-only): used by the build-context playbook
     "check_access_rights", "check_access_rule", "check_access", "has_access",
+    "has_group",  # read-only group test; the context tools' contributor/reviewer check
     "read_progress_bar", "search_panel_select_range", "search_panel_select_multi_range",
 })
 
@@ -686,6 +688,7 @@ def odoo_create(model: str, values: dict) -> int:
       - sum(debit) must equal sum(credit) before Odoo will accept the entry.
       - Always include `company_id` to avoid relying on the default company.
     """
+    _guard_workspace_records(model, None, values)
     return _execute(model, "create", [values])
 
 
@@ -696,6 +699,7 @@ def odoo_write(model: str, ids: list[int], values: dict) -> bool:
     Posted account.move records are locked — reset to draft first via odoo_execute
     (button_draft) before editing financial fields.
     """
+    _guard_workspace_records(model, ids, values)
     return _execute(model, "write", [ids, values])
 
 
@@ -714,6 +718,7 @@ def odoo_archive(model: str, ids: list[int], archive: bool = True) -> bool:
 
     Returns: True on success. (If the model has no `active` field, Odoo raises a fault.)
     """
+    _guard_workspace_records(model, ids)
     return _execute(model, "write", [ids, {"active": not archive}])
 
 
@@ -739,6 +744,7 @@ def odoo_cancel(model: str, ids: list[int]) -> dict[str, Any]:
     Returns: {"method": <method that worked>, "result": <return value>}.
     Raises if no cancel method is available on the model.
     """
+    _guard_workspace_records(model, ids)
     last_err: Exception | None = None
     for method in ("action_cancel", "button_cancel"):
         try:
@@ -847,7 +853,191 @@ def odoo_execute(
         args: Positional args. For most state methods this is [[record_id]].
         kwargs: Keyword args, often {}.
     """
+    _guard(model, method)
+    context_core.guard_execute(model, method, args or [], kwargs or {},
+                               _context_root_id, _workspace_paths)
     return _execute(model, method, args or [], kwargs or {})
+
+
+# ---------- Odoo context (Knowledge workspace) ----------
+#
+# The four odoo_context_* tools. Their logic is context_core.py, byte-identical
+# to the in-Odoo module's copy (the parity tests compare the two files), so both
+# routes give the same answer. This file only supplies the XML-RPC backend.
+#
+# Differences from the module, all because this server calls Odoo from outside
+# as the user (see the spec, "Independent server parity"):
+#   * no elevated rights — contributors need "Can edit" on the Proposals folder;
+#   * the group checks and the company filter run here, so they are advisory:
+#     whoever holds the API key could call XML-RPC directly. Odoo rights and
+#     Knowledge permissions are what actually bind on this route;
+#   * the workspace root and stale-after days come from odoo_config.json.
+
+
+def _context_cfg(key: str):
+    try:
+        return _load_cfg().get(key)
+    except RuntimeError:
+        return None
+
+
+def _context_root_id() -> int | None:
+    raw = _context_cfg("context_root_article_id")
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return None
+    return value or None
+
+
+def _workspace_paths(model: str, ids: list[int]) -> dict[int, str]:
+    """{id: parent_path} for articles (or for members, their article's path)."""
+    ctx = {"active_test": False}
+    if model == context_core.MODEL:
+        rows = _execute(model, "search_read", [[("id", "in", ids)]],
+                        {"fields": ["parent_path"], "context": ctx})
+        return {r["id"]: r.get("parent_path") for r in rows}
+    rows = _execute(model, "search_read", [[("id", "in", ids)]],
+                    {"fields": ["article_id"], "context": ctx})
+    article_ids = {r["id"]: (r.get("article_id") or [None])[0] for r in rows}
+    paths = _workspace_paths(context_core.MODEL, [a for a in article_ids.values() if a])
+    return {mid: paths.get(aid) for mid, aid in article_ids.items()}
+
+
+def _guard_workspace_records(model: str, ids: list[int] | None, values: Any = None) -> None:
+    context_core.guard_records(model, ids, values, _context_root_id, _workspace_paths)
+
+
+def _xmlid_res_id(xmlid: str) -> int | None:
+    module, name = xmlid.split(".", 1)
+    refs = _execute("ir.model.data", "search_read",
+                    [[("module", "=", module), ("name", "=", name),
+                      ("model", "=", "res.groups")]], {"fields": ["res_id"]})
+    return refs[0]["res_id"] if refs else None
+
+
+class _XmlRpcBackend(context_core.Backend):
+    """context_core.Backend over execute_kw, as the connected user."""
+
+    def __init__(self):
+        self.s = _session()
+        self._user = None
+
+    def search_read(self, model, domain, fields, order=None, limit=None,
+                    all_companies=False):
+        kwargs: dict[str, Any] = {"fields": fields}
+        if order:
+            kwargs["order"] = order
+        if limit:
+            kwargs["limit"] = limit
+        if all_companies:
+            kwargs["context"] = {"allowed_company_ids": self.user()["company_ids"]}
+        return _execute(model, "search_read", [domain], kwargs)
+
+    def create(self, model, values, elevated=False):
+        # No elevation over XML-RPC: the user's own rights apply.
+        return _execute(model, "create", [values])
+
+    def write(self, model, ids, values):
+        return _execute(model, "write", [ids, values])
+
+    def post_message(self, article_id, body_html, partner_ids=()):
+        # Over RPC a str body is escaped as plain text, so send plain text.
+        text = context_core.html_to_markdown(body_html)
+        _execute(context_core.MODEL, "message_post", [[article_id]],
+                 {"body": text, "partner_ids": list(partner_ids),
+                  "message_type": "comment", "subtype_xmlid": "mail.mt_comment"})
+
+    def user(self):
+        if self._user is None:
+            rows = _execute("res.users", "read", [[self.s["uid"]]],
+                            {"fields": ["name", "company_ids", "tz"]})
+            row = rows[0]
+            self._user = {"id": row["id"], "name": row.get("name"),
+                          "company_ids": list(row.get("company_ids") or []),
+                          "tz": row.get("tz")}
+        return self._user
+
+    def has_group(self, xmlid):
+        # res.users.has_group is readable by every user over RPC; ir.model.data
+        # (the xmlid table) is not, so the lookup goes through the user record.
+        return bool(_execute("res.users", "has_group", [[self.s["uid"]], xmlid]))
+
+    def group_partner_ids(self, xmlid):
+        try:
+            group_id = _xmlid_res_id(xmlid)
+            if not group_id:
+                return []
+            users = _execute("res.users", "search_read",
+                             [[("groups_id", "in", [group_id])]], {"fields": ["partner_id"]})
+            return [u["partner_id"][0] for u in users if u.get("partner_id")]
+        except Exception:
+            return []
+
+    def today(self):
+        import datetime
+        tz = self.user().get("tz")
+        if tz:
+            try:
+                from zoneinfo import ZoneInfo
+                return datetime.datetime.now(ZoneInfo(tz)).date()
+            except Exception:
+                pass
+        return datetime.date.today()
+
+    def base_url(self):
+        return self.s.get("url") or ""
+
+    def root_article_id(self):
+        return _context_root_id()
+
+    def stale_days(self):
+        try:
+            value = int(_context_cfg("context_stale_days"))
+        except (TypeError, ValueError):
+            return context_core.DEFAULT_STALE_DAYS
+        return value if value > 0 else context_core.DEFAULT_STALE_DAYS
+
+
+def _context_tool(name: str, read_only: bool, destructive: bool, idempotent: bool):
+    """Register a context tool with the shared description text."""
+    def decorator(fn):
+        fn.__doc__ = context_core.TOOL_DOCS[name]
+        return _tool(read_only=read_only, destructive=destructive,
+                     idempotent=idempotent)(fn)
+    return decorator
+
+
+@_context_tool("odoo_context_for", read_only=True, destructive=False, idempotent=True)
+def odoo_context_for(company_id: int, task: str | None = None) -> dict[str, Any]:
+    return context_core.context_for(_XmlRpcBackend(),
+                                    {"company_id": company_id, "task": task})
+
+
+@_context_tool("odoo_context_lookup", read_only=True, destructive=False, idempotent=True)
+def odoo_context_lookup(query: str | None = None, article_id: int | None = None,
+                        structure: str | None = None, ctx_type: str | None = None,
+                        include_proposals: bool = False, limit: int = 10) -> dict[str, Any]:
+    return context_core.lookup(_XmlRpcBackend(), {
+        "query": query, "article_id": article_id, "structure": structure,
+        "ctx_type": ctx_type, "include_proposals": include_proposals, "limit": limit})
+
+
+@_context_tool("odoo_context_propose", read_only=False, destructive=False, idempotent=False)
+def odoo_context_propose(change: str, evidence: str, reason: str,
+                         target_article_id: int | None = None,
+                         new: dict | None = None) -> dict[str, Any]:
+    return context_core.propose(_XmlRpcBackend(), {
+        "change": change, "evidence": evidence, "reason": reason,
+        "target_article_id": target_article_id, "new": new})
+
+
+@_context_tool("odoo_context_apply_proposal", read_only=False, destructive=True,
+               idempotent=False)
+def odoo_context_apply_proposal(proposal_id: int, decision: str,
+                                note: str | None = None) -> dict[str, Any]:
+    return context_core.apply_proposal(_XmlRpcBackend(), {
+        "proposal_id": proposal_id, "decision": decision, "note": note})
 
 
 # ---------- Logging interface ----------

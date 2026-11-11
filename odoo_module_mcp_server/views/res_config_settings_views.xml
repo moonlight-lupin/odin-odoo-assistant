@@ -58,6 +58,34 @@
                             </div>
                         </setting>
                     </block>
+                    <block title="Odoo context (Knowledge)"
+                           name="odoo_module_mcp_server_context_setting_container">
+                        <setting id="odoo_module_mcp_server_context_root_setting"
+                                 string="Context workspace"
+                                 help="The Knowledge article at the top of the
+                                       Odoo context workspace. The
+                                       odoo_context_* tools read and write
+                                       only under it; the generic write tools
+                                       refuse to change anything under it.">
+                            <div class="mt8">
+                                <label for="mcp_context_root_article_id"
+                                       string="Root article id"
+                                       class="o_light_label"/>
+                                <field name="mcp_context_root_article_id"/>
+                            </div>
+                            <div class="mt8">
+                                <label for="mcp_context_stale_days"
+                                       string="Stale after (days)"
+                                       class="o_light_label"/>
+                                <field name="mcp_context_stale_days"/>
+                            </div>
+                            <div class="text-muted">
+                                Leave the root at 0 while importing the
+                                workspace: the context tools and the write
+                                guard switch on once it is set.
+                            </div>
+                        </setting>
+                    </block>
                     <block title="Activity log"
                            name="odoo_module_mcp_server_logging_setting_container">
                         <setting id="odoo_module_mcp_server_log_level_setting"

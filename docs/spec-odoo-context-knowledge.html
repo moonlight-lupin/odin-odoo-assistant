@@ -1,0 +1,348 @@
+<title>Odoo Context in Knowledge</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,500;8..60,600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: single reading column, wide tables scroll in their own frame; a quiet spec document. */
+:root {
+  --bg: #fbfaf8;
+  --surface: #f2efea;
+  --fg: #1d2129;
+  --muted: #4f545e;
+  --rule: #ddd8d0;
+  --accent: #7a1f2b;
+  --accent-soft: #f4e6e7;
+  --changed: #6e4700;
+  --changed-soft: #fbf1dc;
+  --font-display: "Source Serif 4", Georgia, "Times New Roman", serif;
+  --font-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", Consolas, "Courier New", monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #16181d; --surface: #1f2229; --fg: #e6e4df; --muted: #a2a5ad; --rule: #343843;
+    --accent: #e08a93; --accent-soft: #3a2226; --changed: #e6b45a; --changed-soft: #33291a;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #16181d; --surface: #1f2229; --fg: #e6e4df; --muted: #a2a5ad; --rule: #343843;
+  --accent: #e08a93; --accent-soft: #3a2226; --changed: #e6b45a; --changed-soft: #33291a;
+  color-scheme: dark;
+}
+body {
+  background: var(--bg); color: var(--fg);
+  font-family: var(--font-body); font-size: 15.5px; line-height: 1.6;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 40px 80px;
+}
+main { max-width: 860px; margin: 0 auto; display: flex; flex-direction: column; gap: 8px; }
+.prose { max-width: 68ch; }
+h1, h2, h3 { font-family: var(--font-display); text-wrap: balance; line-height: 1.2; margin: 0; }
+h1 { font-size: 2.1rem; font-weight: 600; }
+h2 { font-size: 1.45rem; font-weight: 600; margin-top: 40px; padding-top: 18px; border-top: 1px solid var(--rule); }
+h3 { font-size: 1.12rem; font-weight: 600; margin-top: 22px; }
+p, ul, ol { margin: 8px 0; }
+ul, ol { padding-left: 1.3em; }
+li + li { margin-top: 4px; }
+a { color: var(--accent); }
+code { font-family: var(--font-mono); font-size: 0.88em; background: var(--surface); padding: 2px 6px; border-radius: 3px; overflow-wrap: anywhere; }
+.eyebrow { font-size: 0.78rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); font-weight: 500; }
+.meta { color: var(--muted); font-size: 0.92rem; display: flex; flex-wrap: wrap; gap: 6px 18px; }
+.status { display: inline-block; font-size: 0.75rem; letter-spacing: 0.06em; text-transform: uppercase; font-weight: 600; padding: 2px 8px; border-radius: 3px; background: var(--accent-soft); color: var(--accent); }
+.new { display: inline-block; font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase; font-weight: 600; padding: 2px 8px; border-radius: 3px; background: var(--changed-soft); color: var(--changed); vertical-align: 2px; margin-left: 4px; }
+.summary { background: var(--surface); border-radius: 6px; padding: 18px 22px; margin-top: 14px; }
+.summary ul { margin: 6px 0 0; }
+.changes { border-left: 3px solid var(--changed); padding: 4px 0 4px 18px; margin-top: 10px; }
+.changes h3 { margin-top: 0; }
+.tbl { overflow-x: auto; margin: 12px 0; border: 1px solid var(--rule); border-radius: 6px; }
+table { border-collapse: collapse; width: 100%; font-size: 0.9rem; min-width: 620px; }
+th, td { text-align: left; vertical-align: top; padding: 8px 12px; border-bottom: 1px solid var(--rule); }
+th { font-weight: 600; background: var(--surface); font-size: 0.8rem; letter-spacing: 0.03em; }
+tr:last-child td { border-bottom: none; }
+td code { white-space: nowrap; }
+.tree { font-family: var(--font-mono); font-size: 0.86rem; background: var(--surface); padding: 14px 18px; border-radius: 6px; overflow-x: auto; white-space: pre; line-height: 1.55; }
+.checks { list-style: none; padding-left: 0; }
+.checks li { position: relative; padding-left: 28px; }
+.checks li::before { content: ""; position: absolute; left: 2px; top: 5px; width: 13px; height: 13px; border: 1.5px solid var(--muted); border-radius: 2px; }
+.note { font-size: 0.9rem; color: var(--muted); }
+footer { margin-top: 40px; padding-top: 14px; border-top: 1px solid var(--rule); font-size: 0.85rem; color: var(--muted); }
+@media (max-width: 520px) { h1 { font-size: 1.7rem; } body { font-size: 15px; } }
+</style>
+
+<main>
+  <div class="eyebrow">Spec · in-Odoo MCP module</div>
+  <h1>Odoo context served from Knowledge</h1>
+  <div class="meta">
+    <span>Version 2.1 · 03 Nov 2026 (as built)</span>
+    <span>Owner: Meng Huey</span>
+    <span class="status">Draft for maintainer review</span>
+  </div>
+
+  <div class="summary prose">
+    <p style="margin-top:0"><strong>Request.</strong> One release of the in-Odoo MCP module that adds two read tools and two write tools. Together they serve QIP's Odoo context (entity profiles, journals, chart of accounts, posting rules) to every finance user through the connector they already use.</p>
+    <ul>
+      <li>Content lives in Odoo Knowledge, not in the module. Day-to-day updates are article edits, with no redeploy.</li>
+      <li>Routing is by Odoo company id. One call returns the right entity page, its structure's journals and chart, its rulebook and any warnings.</li>
+      <li>Agents propose, people approve. Agent writes land as proposals; a named reviewer applies them.</li>
+      <li>A further release is only needed if the tools themselves change.</li>
+    </ul>
+  </div>
+
+  <section class="changes prose">
+    <h3>What changed from version 1</h3>
+    <ul>
+      <li><strong>Four tools instead of six.</strong> <code>odoo_context_for</code> now returns the company's resolved journals, replacing <code>resolve_journal</code>. Search and get are merged into <code>odoo_context_lookup</code>. The two write tools stay separate, so proposing and approving carry different behavioural hints and remain distinct steps in the audit trail.</li>
+      <li><strong>Packaging.</strong> The tools ship in the existing MCP module. <code>knowledge</code> is added to its <code>depends</code>, and the module README and docs state that it requires Odoo 18 Enterprise with Knowledge.</li>
+      <li><strong>Property definitions.</strong> Knowledge applies a property definition to an article's direct children only. Definitions are now set on every parent article, not just the root.</li>
+      <li><strong>Drift facts.</strong> Entity articles carry year end, parent and currency as properties, so the drift check compares fields rather than parsing article text.</li>
+      <li><strong>Rejected proposals</strong> are kept active under Proposals → Rejected instead of archived, because archived Knowledge articles go to the Trash, which is purged automatically.</li>
+      <li><strong>Proposal rights.</strong> Contributors only need read access to the workspace; the propose tool creates the proposal with elevated rights after checking the group.</li>
+      <li><strong>Journal resolution.</strong> Bank journals resolve to the company's own bank journal only. The consolidation lookup is limited to the company's ancestor chain, because CJE exists in three companies.</li>
+      <li><strong>Both servers.</strong> The independent server gets the same four tools, and a write guard on both servers stops the generic tools editing context articles outside the proposal flow.</li>
+      <li><strong>Company filter.</strong> Knowledge has no company field, so the tools only return articles for companies the user is allowed into in Odoo.</li>
+      <li>Behavioural hints for each tool, a default that keeps proposals out of search, and extra acceptance tests for each of the above.</li>
+    </ul>
+  </section>
+
+  <h2>Scope and non-goals</h2>
+  <div class="prose">
+    <h3>In scope</h3>
+    <ul>
+      <li>Four new <code>odoo_context_*</code> tools in the existing MCP module (<code>odoo_module_mcp_server</code>), in their own file and registered through <code>register_tool</code> like the generic tools. They follow the existing tool conventions and controls on <code>/mcp/v1</code>.</li>
+      <li><code>knowledge</code> added to the manifest's <code>depends</code>. The module README and the manifest description state the requirement: Odoo 18 Enterprise with the Knowledge app. QIP's production database already meets it.</li>
+      <li>Two security groups and two settings (workspace root article, stale-after days), shipped as module data.</li>
+      <li>The same four tools, with the same names, inputs, outputs and behavioural hints, on the independent server (<code>odoo-mcp/server.py</code>). See "Independent server parity".</li>
+      <li>A workspace write guard in the existing generic write tools on both servers.</li>
+      <li>A Knowledge workspace convention (article properties) that the tools rely on.</li>
+      <li>A one-off import of the existing context folder into Knowledge. QIP finance runs this through the MCP; no maintainer work.</li>
+    </ul>
+    <h3>Not in scope</h3>
+    <ul>
+      <li>No new models, fields or views. Article metadata uses Knowledge's built-in article properties, so the "no model tampering" control stays on.</li>
+      <li>No change to the OAuth / API-key set-up. The only change to the existing tools is the workspace write guard (see "Access control").</li>
+      <li>No direct agent edits to approved articles. Agents can only create proposals.</li>
+      <li>No sync back to OneDrive or git. A periodic export for audit is a separate, later piece.</li>
+    </ul>
+  </div>
+
+  <h2>Content model</h2>
+  <div class="prose">
+    <p>All context sits under one Knowledge workspace article, <em>Finance – Odoo context</em>. One article covers one concept, the same rule as the current folder. The tools find articles by their properties, never by title or position, so people can rename and reorder freely.</p>
+    <h3>Article tree</h3>
+  </div>
+  <div class="tree">Finance – Odoo context                 root · defines properties for its children
+├─ Read me first                        guide: the five things that bite, house rules
+├─ Organisation                         structures, year ends, hierarchy
+├─ Structures                           defines properties for its children
+│  └─ sp6, shc-ii, uk-erm, standalone,  structure article · defines properties for its children
+│     qipdg-us, founders-capital
+│     └─ Journals · Chart of accounts · Taxes · Banking · Partners
+├─ Entities                             defines properties for its children
+│  └─ one article per Odoo company in scope (43 today)
+├─ Posting rules                        defines properties for its children
+│  └─ one rulebook per Odoo company
+├─ FS sections · Reports                each defines properties for its children
+├─ Change log                           append-only by convention
+└─ Proposals                            defines properties for its children
+   ├─ one article per pending proposal
+   └─ Rejected                          defines properties · rejected proposals kept here</div>
+
+  <div class="prose">
+    <h3>Article properties</h3>
+    <p>In Knowledge, a property definition applies only to the direct children of the article that holds it. Every article marked "defines properties" above therefore carries the <em>same</em> definition below. The maintainer sets it on the root, the import copies it to each other parent, and a new parent article is set up the same way. The tools treat an article with no <code>ctx_type</code> as invisible, so a missing definition fails safe and the tools report it (see warnings).</p>
+    <p>Selection options are stored with keys equal to their labels (for example key <code>entity</code>, label <code>entity</code>), so domains filter on stable values.</p>
+  </div>
+  <div class="tbl"><table>
+    <thead><tr><th>Property</th><th>Type</th><th>Example</th><th>Used by</th></tr></thead>
+    <tbody>
+      <tr><td><code>ctx_type</code></td><td>selection: entity, rulebook, journals, chart, taxes, banking, partners, fs_section, structure, guide, log, proposal, proposals (the Proposals folder), rejected (the Rejected folder)</td><td>entity</td><td>every lookup</td></tr>
+      <tr><td><code>ctx_company_id</code></td><td>integer. On a structure article, the structure's root company. Blank on the structure's child articles.</td><td>67</td><td>context_for</td></tr>
+      <tr><td><code>ctx_structure</code></td><td>char</td><td>shc-ii</td><td>context_for</td></tr>
+      <tr><td><code>ctx_status</code></td><td>selection: approved, proposed, rejected</td><td>approved</td><td>all reads return approved only</td></tr>
+      <tr><td><code>ctx_verified_on</code></td><td>date</td><td>03 Nov 2026</td><td>stale checks</td></tr>
+      <tr><td><code>ctx_verified_via</code></td><td>char</td><td>odoo_read(res.company)</td><td>audit trail</td></tr>
+      <tr><td><code>ctx_year_end</code> <span class="new">new</span></td><td>char, <code>DD-MM</code> (entity articles)</td><td>31-07</td><td>drift check</td></tr>
+      <tr><td><code>ctx_parent_id</code> <span class="new">new</span></td><td>integer (entity articles)</td><td>9</td><td>drift check</td></tr>
+      <tr><td><code>ctx_currency</code> <span class="new">new</span></td><td>char, ISO code (entity articles)</td><td>GBP</td><td>drift check</td></tr>
+      <tr><td><code>ctx_target</code></td><td>many2one → knowledge.article (proposals only)</td><td>Entities / Woolwich 1 Elimination</td><td>apply_proposal</td></tr>
+    </tbody>
+  </table></div>
+  <p class="prose">Bodies stay human-readable HTML (headings, tables, links), converted from the current markdown.</p>
+
+  <h2>New MCP tools</h2>
+  <div class="prose">
+    <p>The two read tools run as the calling user, with no elevated rights. The two write tools touch only <code>knowledge.article</code> and check the caller's group first. All tools return article bodies converted to markdown, with a link to each article. The conversion runs inside the module and uses only libraries Odoo already ships (lxml), so the provider's host needs no extra Python packages.</p>
+  </div>
+  <div class="tbl"><table>
+    <thead><tr><th>Tool</th><th>Inputs</th><th>Returns</th><th>Who</th></tr></thead>
+    <tbody>
+      <tr><td><code>odoo_context_for</code></td><td><code>company_id</code> (int, required) · <code>task</code> (optional: posting, bills, bank, elimination, review, reporting)</td><td>Live company facts, the resolved journals, the routed articles, and warnings (below)</td><td>Any user. Articles only for users with workspace access.</td></tr>
+      <tr><td><code>odoo_context_lookup</code></td><td>Either <code>query</code> (text), with optional <code>structure</code> / <code>ctx_type</code> filters, <code>include_proposals</code> (default false) and <code>limit</code> (default 10); or <code>article_id</code>. Passing both, or neither, is refused.</td><td>For <code>query</code>: a ranked list of article id, title, type, company, verified-on and a snippet. For <code>article_id</code>: that article in full (markdown) with its properties.</td><td>Any user with workspace access</td></tr>
+      <tr><td><code>odoo_context_propose</code></td><td><code>target_article_id</code> (or new: parent and properties) · <code>change</code> (markdown) · <code>evidence</code> (the Odoo calls or documents that support it) · <code>reason</code></td><td>The new proposal article's id</td><td>Context contributor group</td></tr>
+      <tr><td><code>odoo_context_apply_proposal</code></td><td><code>proposal_id</code> · <code>decision</code> (approve / reject) · <code>note</code></td><td>The updated article's id, new verified-on date, change-log entry</td><td>Context reviewer group</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="prose">
+    <h3>Behavioural hints</h3>
+    <p>The registry rejects any tool that does not declare all four MCP hints. <code>openWorld</code> is true because every one of these tools reaches the live Odoo database, as the existing tools do.</p>
+  </div>
+  <div class="tbl"><table>
+    <thead><tr><th>Tool</th><th>readOnly</th><th>destructive</th><th>idempotent</th><th>openWorld</th></tr></thead>
+    <tbody>
+      <tr><td>context_for, context_lookup</td><td>true</td><td>false</td><td>true</td><td>true</td></tr>
+      <tr><td>context_propose</td><td>false</td><td>false</td><td>false</td><td>true</td></tr>
+      <tr><td>context_apply_proposal</td><td>false</td><td>true</td><td>false</td><td>true</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="prose">
+    <h3>Routing in <code>odoo_context_for</code></h3>
+    <p>This is the core of the request.</p>
+    <ol>
+      <li>Read the company live from <code>res.company</code>: name, parent, root, year end, currency, opening date and lock dates.</li>
+      <li>Find its structure: the approved article with <code>ctx_type = structure</code> whose <code>ctx_company_id</code> is the company's root.</li>
+      <li>Resolve the company's journals live (see "Journal resolution" below) and return them in a <code>journals</code> block. This step does not depend on Knowledge, so users without workspace access still get it.</li>
+      <li>Refuse the call if <code>company_id</code> is not one of the user's allowed companies.</li>
+      <li>Collect approved articles, filtered by company as described under "Access control": the entity article and rulebook for <code>company_id</code>; the structure's Journals, Chart, Taxes, Banking and Partners articles; and the Read-me-first guide.</li>
+      <li>Trim by task. For example, <code>elimination</code> drops Taxes and Banking, and <code>bank</code> keeps Banking and the rulebook. No task returns everything.</li>
+      <li>Drift check: compare year end, parent and currency from step 1 with the entity article's <code>ctx_year_end</code>, <code>ctx_parent_id</code> and <code>ctx_currency</code>. Return any mismatch in <code>warnings</code> with both values. The check never edits the article.</li>
+      <li>Flag any routed article whose <code>ctx_verified_on</code> is older than the stale-after setting (default 90 days).</li>
+      <li>Warn when an expected article is missing, including one that has no properties because its parent lacks the definition.</li>
+    </ol>
+    <p><strong>Example.</strong> <code>odoo_context_for(67, "elimination")</code> returns Woolwich 1 Elimination's facts (parent 9 B Woolwich Limited, root 6 Straits HoldCo II, year end 31 Jul, GBP), its resolved journals (consolidation: CJE 224, owned by Straits HoldCo II, shared), its entity and rulebook articles, the shc-ii Journals, Chart and Partners articles, and the warning "year end 31 July: a July close is a year-end close".</p>
+
+    <h3>Journal resolution in <code>odoo_context_for</code></h3>
+    <p>Computed live from <code>account.journal</code> as the calling user, not from articles. The <code>journals</code> block has one entry each for <code>general</code>, <code>purchase</code>, <code>sale</code> and <code>bank</code>, plus <code>consolidation</code> where one applies. Each entry gives the journal id, code, owning company, <code>shared</code> true/false and the posting procedure, or an error.</p>
+    <ol>
+      <li><strong>Bank:</strong> list the company's own active bank journal(s) and nothing else. If it has none, the entry is an error saying so; never fall back to another company's.</li>
+      <li><strong>General, purchase and sale:</strong> use the company's own active journal of that type if it has one (<code>shared: false</code>, post directly). For <code>general</code>, the CJE and EXCH journals are skipped; when several candidates remain (e.g. MISC and HFS at SP6 HoldCo), the lowest-sequence one is returned and the rest are listed as <code>alternatives</code>.</li>
+      <li>Otherwise walk up the company's ancestors (<code>parent_path</code>), nearest first, to the first one that owns such a journal. Return <code>shared: true</code> with the procedure "create under the owning company, then set <code>company_id</code> while in draft". (Version 2 had a "post directly if an Odoo branch" exception; it is dropped because in Odoo 18 every child company is a branch, and the workaround is what has been observed to work on this instance.)</li>
+      <li><strong>Consolidation:</strong> match only journals coded <code>CJE</code>, and only within the company and its ancestors. CJE exists in three companies today (202 QIP Development Group LLC, 224 Straits HoldCo II, 122 Q.I.P. SP6 UK HoldCo), so an unrestricted match would pick the wrong structure. Omit the entry if no ancestor has one.</li>
+      <li>If the owning journal belongs to a company the user cannot access, that entry is an error naming the company and asking the user to request access. Do not elevate rights to read it.</li>
+    </ol>
+    <p><strong>Example.</strong> <code>odoo_context_for(68)</code> returns a consolidation entry of CJE (224), owned by Straits HoldCo II (6), <code>shared: true</code>.</p>
+  </div>
+
+  <h2>Update and review flow</h2>
+  <div class="prose">
+    <p>Agents and users never edit an approved article directly. Every change goes through a proposal that a reviewer approves.</p>
+    <ul>
+      <li><strong>Propose.</strong> <code>odoo_context_propose</code> checks the caller is in the contributor group, then creates a child article under Proposals with elevated rights limited to that one create. It sets <code>ctx_status = proposed</code> and <code>ctx_target</code>, and records the proposed text, the evidence and the reason. The record's creator stays the calling user, so Odoo shows who proposed it. Reviewers are notified through the article's chatter.</li>
+      <li><strong>Approve.</strong> <code>odoo_context_apply_proposal</code> runs as the reviewer, without elevated rights, so Knowledge's own history shows who made the change. It writes the change into the target article, sets <code>ctx_verified_on</code> to today and <code>ctx_verified_via</code> to the proposal's evidence, appends one row to Change log (date · article · change · proposed by · approved by), and marks the proposal approved.</li>
+      <li><strong>Reject.</strong> The proposal is marked rejected with the reviewer's note and moved under Proposals → Rejected. It stays active: it is not archived, because archived articles go to Knowledge's Trash, which is purged automatically. The target is untouched.</li>
+      <li><strong>Edits in the Knowledge UI.</strong> People editing in the UI are reviewers by convention and add their own change-log row. The tools do not police UI edits, and the Change log is append-only by convention, not enforced.</li>
+    </ul>
+  </div>
+
+  <h2>Access control and guardrails</h2>
+  <div class="prose">
+    <ul>
+      <li><strong>Reads follow Odoo rights.</strong> Both read tools run as the calling user. Anyone who cannot open the workspace in Knowledge gets nothing back. The workspace is shared with the finance team's Odoo users as read-only; no per-article rules are needed today.</li>
+      <li><strong>Knowledge is not company-scoped.</strong> <code>knowledge.article</code> has no company field; access is set per article (internal permission and members) and passes down the tree. Anyone who can read the workspace in the Knowledge app can read every entity's article, whichever Odoo companies they are allowed into.</li>
+      <li><strong>Company filter in the tools.</strong> On top of Knowledge's own permissions, the read tools only return articles for companies the user is allowed into (<code>env.user.company_ids</code>):
+        <ul>
+          <li>Company articles (those with <code>ctx_company_id</code>, such as entity articles and rulebooks) are returned only if that company is one of the user's allowed companies.</li>
+          <li>Structure articles and their children are returned only if the user is allowed into the structure's root company or any company below it.</li>
+          <li>Articles that are not about one company (Read me first, Organisation, FS sections, Reports, Change log) are returned to anyone with workspace access.</li>
+          <li><code>odoo_context_for</code> for a company the user is not allowed into is refused outright.</li>
+          <li><code>odoo_context_lookup</code> by <code>article_id</code> for a filtered article returns "not found", the same answer as for an article that does not exist, so the result reveals nothing.</li>
+          <li><code>odoo_context_propose</code> and <code>odoo_context_apply_proposal</code> are refused when the target article belongs to a company outside the caller's allowed companies.</li>
+        </ul>
+        This filter applies only through the MCP tools. Anyone opening the Knowledge app directly still sees what the workspace permissions allow, so the workspace must not hold anything that needs stricter control than the data classification below.</li>
+      <li><strong>Two security groups</strong>, shipped as module data, never created by agents:
+        <ul>
+          <li><em>Context contributor</em> (finance users): may call <code>odoo_context_propose</code>.</li>
+          <li><em>Context reviewer</em> (initially Meng Huey and Linus): may call <code>odoo_context_apply_proposal</code>, and has write access to the workspace.</li>
+        </ul>
+      </li>
+      <li><strong>Write scope.</strong> The propose tool may only create articles under Proposals. The apply tool may only write articles under the workspace root. Any other model, or an article outside the workspace, is refused.</li>
+      <li><strong>Limited elevation.</strong> The only elevated-rights operation is the single proposal create, after the group check. Every other call runs as the user.</li>
+      <li><strong>No silent edits.</strong> <code>odoo_context_propose</code> never changes an approved article. Only <code>odoo_context_apply_proposal</code> does, and it always writes a change-log entry.</li>
+      <li><strong>Workspace write guard.</strong> Without one, a reviewer, who has edit rights on the workspace, could have an agent change an approved article through the generic tools with no proposal and no change-log row. On both servers, the generic write tools (<code>odoo_create</code>, <code>odoo_write</code>, <code>odoo_archive</code>, <code>odoo_execute</code>, and <code>odoo_unlink</code> where enabled) therefore refuse to:
+        <ul>
+          <li>create a <code>knowledge.article</code> whose parent is in the workspace; or</li>
+          <li>call any method other than reads on a <code>knowledge.article</code> that is in the workspace, including the workspace root.</li>
+        </ul>
+        An article is in the workspace if its <code>parent_path</code> starts with the root article's. The error names the context tools as the way to make the change. The two context write tools are the only path past the guard. The guard does not apply in the Knowledge app.</li>
+      <li><strong>Existing controls unchanged.</strong> No-delete and no-model-tampering stay on. Nothing is archived or deleted by the tools. Every call is recorded in the existing MCP activity log.</li>
+      <li><strong>Data classification.</strong> Articles hold internal ledger structure (ids, codes, journal set-up), not counterparty deal terms. Anything more confidential stays out of the workspace.</li>
+    </ul>
+  </div>
+
+  <h2>Independent server parity</h2>
+  <div class="prose">
+    <p>The independent server (<code>odoo-mcp/server.py</code>, XML-RPC with the user's API key) gets the same four tools. Names, inputs, outputs and behavioural hints must match the module exactly, so a skill drives either server unchanged. The existing parity tests check this: the four tools are <em>not</em> added to <code>MODULE_ONLY</code>.</p>
+    <p>The logic is the same on both servers. These differences follow from the independent server calling Odoo from outside, as the user, over XML-RPC:</p>
+  </div>
+  <div class="tbl"><table>
+    <thead><tr><th>Topic</th><th>In-Odoo module</th><th>Independent server</th></tr></thead>
+    <tbody>
+      <tr><td>Workspace root and stale-after days</td><td>Module settings</td><td><code>context_root_article_id</code> and <code>context_stale_days</code> in <code>odoo_config.json</code> (the config GUI still manages only url and db, by design)</td></tr>
+      <tr><td>Creating a proposal</td><td>Created with elevated rights after the group check; contributors only need read access</td><td>No elevated rights over XML-RPC. Contributors need "Can edit" membership on the Proposals article in Knowledge.</td></tr>
+      <tr><td>Group checks</td><td>Enforced in Odoo</td><td>Checked with <code>res.users.has_group</code> on the user's own record (ordinary users cannot read the XML-id table), using the module's group XML ids, so the module must be installed on the database. These checks are advisory: someone holding the API key could call XML-RPC directly.</td></tr>
+      <tr><td>Company filter</td><td>Enforced in Odoo</td><td>Same rule, using the user's allowed companies. Also advisory, for the same reason.</td></tr>
+      <tr><td>What actually limits access</td><td>Odoo rights plus the tool checks</td><td>Odoo rights and Knowledge's own permissions only</td></tr>
+      <tr><td>HTML to markdown</td><td>Converted inside Odoo</td><td>Converted in the server. Must produce the same markdown as the module for the same article (checked by a shared test fixture).</td></tr>
+      <tr><td>Workspace write guard</td><td>Generic write tools</td><td>Inside <code>_guard</code> / <code>_execute</code>. Needs a read of the target articles' <code>parent_path</code> before each write on <code>knowledge.article</code>.</td></tr>
+    </tbody>
+  </table></div>
+  <p class="prose">Release follows the repo's standing rule for <code>server.py</code> changes: run the pytest suite, rebuild the Docker image, regenerate the tarball, and package the plugin with <code>build_plugin.py</code>.</p>
+
+  <h2>Migration and rollout</h2>
+  <div class="prose">
+    <ol>
+      <li><strong>Maintainer:</strong> release the MCP module with the four tools, two groups, the two settings and the write guard. Create the workspace root and its property definition.</li>
+      <li><strong>QIP (repo):</strong> release the independent server with the same four tools and the write guard, and set <code>context_root_article_id</code> in each deployment's <code>odoo_config.json</code>. In Knowledge, give contributors "Can edit" on the Proposals article for users who will propose through the independent server.</li>
+      <li><strong>QIP finance (through the MCP):</strong> create the parent articles and copy the property definition to each. Then import the current <em>0. Odoo context</em> folder: one article per file, properties filled from each file's front matter (including the three drift properties for entity articles), markdown converted to HTML, and internal links rewritten as article links. Imported articles start as approved with their existing verified-on dates.</li>
+      <li><strong>QIP finance:</strong> confirm the list of companies in scope against <code>res.company</code>; spot-check five articles against the folder; then make the OneDrive folder read-only and add a pointer to Knowledge.</li>
+      <li><strong>Team:</strong> call <code>odoo_context_for</code> at the start of every Odoo task (added to the Odin skill).</li>
+    </ol>
+  </div>
+
+  <h2>Acceptance tests</h2>
+  <p class="prose">On staging, with the imported content.</p>
+  <ul class="checks prose">
+    <li><code>odoo_context_for(67, "elimination")</code> returns the Woolwich 1 Elimination entity and rulebook articles, the shc-ii Journals, Chart and Partners articles, and a 31 July year-end warning.</li>
+    <li><code>odoo_context_for(23)</code> returns the Edinburgh 1 Elimination articles and the sp6 structure articles, and nothing from shc-ii.</li>
+    <li>A structure's child article (e.g. shc-ii → Journals), two levels below the root, is found by its properties. <span class="new">new</span></li>
+    <li>An article placed under a parent with no property definition is not returned, and <code>odoo_context_for</code> warns that the expected article is missing. <span class="new">new</span></li>
+    <li>Changing a test company's year end in Odoo makes <code>odoo_context_for</code> return a drift warning, without editing the article. (Odoo 18 requires a subsidiary's year end to match its root's, so the test changes it on the root, which cascades.)</li>
+    <li><code>odoo_context_for(68)</code> returns a consolidation journal of CJE (224), owner 6, <code>shared: true</code>.</li>
+    <li><code>odoo_context_for(23)</code> returns a consolidation journal of CJE (122), owner 14, and never 224 or 202. <span class="new">new</span></li>
+    <li><code>odoo_context_for(9)</code> lists only B Woolwich Limited's own bank journal(s), never one owned by another company. A company with no bank journal gets an error in that entry.</li>
+    <li>For a user without access to the owning company, that journal entry is an error, not the journal. <span class="new">new</span></li>
+    <li>A user without workspace access gets no articles from either read tool. <code>odoo_context_for</code> still returns the company facts and journals that the user's Odoo rights allow.</li>
+    <li>A user allowed only into SP6 companies gets no shc-ii or Woolwich articles from <code>odoo_context_lookup</code>, by query or by <code>article_id</code> ("not found"). They do still get Read me first and Organisation. <span class="new">new</span></li>
+    <li>The same user calling <code>odoo_context_for(67)</code> is refused. <span class="new">new</span></li>
+    <li>The same user calling <code>odoo_context_propose</code> against a Woolwich article is refused. <span class="new">new</span></li>
+    <li><code>odoo_context_lookup</code> with a <code>query</code> returns no proposals unless <code>include_proposals</code> is true. <span class="new">new</span></li>
+    <li><code>odoo_context_lookup</code> with both <code>query</code> and <code>article_id</code>, or with neither, is refused. <span class="new">new</span></li>
+    <li>A contributor with read-only workspace access can call <code>odoo_context_propose</code>. It creates a proposal showing that user as creator, and the target article is unchanged.</li>
+    <li>A user outside the contributor group calling <code>odoo_context_propose</code> is refused. <span class="new">new</span></li>
+    <li>A contributor calling <code>odoo_context_apply_proposal</code> is refused. A reviewer's approval updates the target, sets verified-on to today and adds one change-log row.</li>
+    <li>A rejected proposal stays active under Proposals → Rejected and does not appear in the Trash. <span class="new">new</span></li>
+    <li>A write tool pointed at an article outside the workspace, or at any other model, is refused.</li>
+    <li>A reviewer calling <code>odoo_write</code>, <code>odoo_create</code>, <code>odoo_archive</code> or <code>odoo_execute</code> against an article in the workspace is refused on both servers. The same calls on an article outside the workspace still work. <span class="new">new</span></li>
+    <li>On the independent server, the same calls as the tests above return the same results as on the module, including the company filter and the refusals. <span class="new">new</span></li>
+    <li>Both servers return identical markdown for the same article. <span class="new">new</span></li>
+    <li>The server-parity tests pass with the four tools on both servers and matching hints. <span class="new">new</span></li>
+    <li>The upgraded module installs on staging with Knowledge present, and its existing tests still pass. <span class="new">new</span></li>
+    <li><code>odoo_context_for</code> responds in under 3 seconds with all companies' content loaded.</li>
+  </ul>
+
+  <h2>Open questions for the maintainer</h2>
+  <ul class="checks prose">
+    <li>Knowledge is installed on production. Do all finance users hold a licence that includes it?</li>
+    <li>Can domains on <code>article_properties</code> (selection, integer and many2one properties) be used reliably through the ORM for filtering? If not, would you prefer a tag-based convention?</li>
+    <li>Do you agree with copying the property definition to each parent article, or would you rather the module apply it to new parent articles under the root automatically?</li>
+    <li>Do you confirm that archiving a Knowledge article in Odoo 18 sends it to the Trash and that the Trash is purged automatically? (This spec avoids archiving either way.)</li>
+    <li>Expected lead time for a staging build and a production release window?</li>
+    <li>Any objection to adding a weekly scheduled action later that runs the drift check across all companies and posts a summary to the Change log article?</li>
+  </ul>
+
+  <footer>Working draft for review before reliance. Company ids, journal ids and year ends in the examples were checked by read-only queries on production on 03 Nov 2026. The count of 43 companies in scope is to be confirmed at import.</footer>
+</main>

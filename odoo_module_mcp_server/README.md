@@ -12,6 +12,9 @@ authenticated user, so record rules and `ir.model.access` enforce what the calle
   which authenticates via an OAuth Authorization Server (no static-key field). Per-user browser login,
   nothing shared. **→ Full team setup guide: [`OAUTH_SETUP.md`](OAUTH_SETUP.md).**
 
+**Requires Odoo 18 Enterprise with the Knowledge app** (for the Odoo-context tools; see
+[Odoo context](#odoo-context-knowledge-workspace)).
+
 ## Endpoint
 
 `POST /mcp/v1`
@@ -115,6 +118,65 @@ blank when read in a different company's context.
 
 Bridge modules (e.g. `custom_reporting_engine_mcp`) register higher-level tools on
 top — discoverable via `tools/list`.
+
+## Odoo context (Knowledge workspace)
+
+> **Requires Odoo 18 Enterprise with the Knowledge app.** `knowledge` (and `account`) are in the
+> manifest's `depends`, so the module will not install on Community or on a database without
+> Knowledge.
+
+Four more tools serve the organisation's Odoo context — entity profiles, journals, chart of accounts,
+posting rules — from one Knowledge workspace. The content lives in Knowledge articles, so day-to-day
+updates are article edits with no redeploy. The logic is `context_core.py`, shipped byte-identical in
+the independent server, so both routes give the same answer.
+
+| Tool | What it does | Who | Hints (readOnly / destructive / idempotent / openWorld) |
+|---|---|---|---|
+| `odoo_context_for` | Start of every Odoo task: live company facts (parent, root, year end, currency, opening and lock dates), the company's journals resolved live, and the approved articles routed for it, as markdown, plus warnings (year-end close, drift between Odoo and the entity article, stale or missing articles). Optional `task` trims the articles. | Any user allowed into the company | ✅ ❌ ✅ ✅ |
+| `odoo_context_lookup` | `query` → ranked list (filters: `structure`, `ctx_type`, `include_proposals`); or `article_id` → one article in full. | Any user with workspace access | ✅ ❌ ✅ ✅ |
+| `odoo_context_propose` | Files a proposal under Proposals (nothing approved changes). `change` is the complete new body in markdown; `evidence` and `reason` are required. | **Context contributor** group | ❌ ❌ ❌ ✅ |
+| `odoo_context_apply_proposal` | `approve` writes the change into the target (or creates the new article), sets verified-on/via, appends a Change log row; `reject` files it under Proposals → Rejected. | **Context reviewer** group | ❌ ✅ ❌ ✅ |
+
+**Journal resolution** (inside `odoo_context_for`, computed live from `account.journal`): own journal
+first, else the nearest ancestor's, flagged `shared` with the posting procedure (create under the
+owning company, then set `company_id` while in draft). Bank journals are only ever the company's own.
+The consolidation journal is matched by code `CJE` within the company's own parent chain only. The
+`general` journal skips `CJE` and `EXCH`; any other candidates are listed as `alternatives`.
+
+**Company filter.** Knowledge has no company field, so the read tools only return articles for
+companies the caller is allowed into (`res.users.company_ids`); structure pages go to anyone allowed
+into any company of that structure; general pages (Read me first, Organisation, …) to anyone with
+workspace access. Hidden articles read as "not found". The filter applies to the tools only — the
+Knowledge app itself shows what the workspace permissions allow.
+
+**Workspace write guard.** Once the root is set, the generic write tools (`odoo_create`, `odoo_write`,
+`odoo_archive`, `odoo_cancel`, `odoo_unlink`, `odoo_execute`) refuse to change any `knowledge.article`
+under it, or any `knowledge.article.member` row on such an article. Changes go through propose →
+apply, so every change is reviewed and logged. Refusals are logged as **blocked**.
+
+### Set-up
+
+1. Install / upgrade the module. It adds two groups under **Settings → Users → MCP Odoo context**:
+   *Context contributor* and *Context reviewer* (implies contributor). Assign members in the UI.
+2. Create the workspace root article and give it — and **every parent article under it** — the
+   property definition below. Knowledge applies a definition to an article's *direct children* only,
+   so a grandchild needs its parent to carry the definition too. Selection keys equal their labels.
+3. Give the folder articles their types: Change log `ctx_type = log`, Proposals `proposals`,
+   Proposals → Rejected `rejected` (Rejected also carries the definition).
+4. Import the content (the generic write tools are still allowed — the guard is off until step 5).
+5. **Settings → General Settings → MCP Server → Odoo context**: set the root article id (and, if not
+   90, the stale-after days). The context tools and the write guard switch on.
+
+Property definition (set as `article_properties_definition` on the root and every parent):
+
+```json
+[{"name": "ctx_type", "string": "Context type", "type": "selection", "selection": [["entity", "entity"], ["rulebook", "rulebook"], ["journals", "journals"], ["chart", "chart"], ["taxes", "taxes"], ["banking", "banking"], ["partners", "partners"], ["fs_section", "fs_section"], ["structure", "structure"], ["guide", "guide"], ["log", "log"], ["proposal", "proposal"], ["proposals", "proposals"], ["rejected", "rejected"]]}, {"name": "ctx_company_id", "string": "Company id", "type": "integer"}, {"name": "ctx_structure", "string": "Structure", "type": "char"}, {"name": "ctx_status", "string": "Status", "type": "selection", "selection": [["approved", "approved"], ["proposed", "proposed"], ["rejected", "rejected"]]}, {"name": "ctx_verified_on", "string": "Verified on", "type": "date"}, {"name": "ctx_verified_via", "string": "Verified via", "type": "char"}, {"name": "ctx_year_end", "string": "Year end (DD-MM)", "type": "char"}, {"name": "ctx_parent_id", "string": "Parent company id", "type": "integer"}, {"name": "ctx_currency", "string": "Currency", "type": "char"}, {"name": "ctx_target", "string": "Target article", "type": "many2one", "comodel": "knowledge.article"}]
+```
+
+Reviewers need edit rights on the workspace in Knowledge. Contributors need only read access: the
+propose tool creates the proposal with elevated rights after checking the group (the record's
+creator stays the contributor).
+
 
 ## Quick test — three curl calls
 

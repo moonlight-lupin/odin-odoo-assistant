@@ -297,5 +297,34 @@ class TestAnnotationParity(unittest.TestCase):
                     % name)
 
 
+class TestContextCoreParity(unittest.TestCase):
+    """The context tools' logic is one file shipped twice; the copies must match."""
+
+    def test_the_two_copies_of_context_core_are_identical(self):
+        ours = (_fake_odoo.ADDON_DIR / 'context_core.py').read_bytes()
+        theirs = (_EXTERNAL / 'context_core.py').read_bytes()
+        self.assertEqual(ours, theirs,
+                         'odoo-mcp/context_core.py has drifted from the module copy')
+
+    def test_both_servers_offer_the_four_context_tools(self):
+        names = {'odoo_context_for', 'odoo_context_lookup', 'odoo_context_propose',
+                 'odoo_context_apply_proposal'}
+        self.assertTrue(names <= set(external.TOOL_ANNOTATIONS))
+        self.assertTrue(names <= set(mcp_registry.McpRegistry.tools()))
+
+    def test_the_module_schemas_match_the_servers_signatures(self):
+        import inspect
+        for name, schema in context_core_module().TOOL_SCHEMAS.items():
+            with self.subTest(tool=name):
+                params = inspect.signature(getattr(external, name)).parameters
+                self.assertEqual(set(params), set(schema['properties']))
+                required = {p for p, v in params.items() if v.default is inspect.Parameter.empty}
+                self.assertEqual(required, set(schema.get('required', [])))
+
+
+def context_core_module():
+    return _fake_odoo.load('context_core')
+
+
 if __name__ == '__main__':
     unittest.main()
