@@ -22,7 +22,7 @@ Today’s playbooks focus on accounting. They can be extended to other Odoo apps
 Once a connector is up and Odin is enabled (see [Getting connected](#getting-connected) below), try a short path on a **sandbox** company — not production.
 
 1. Say **“hi Odin”** (or any Odoo task). On first use it asks for a working folder and credentials.
-2. Ask **“build context”** so it learns the companies, chart, and journals you work in.
+2. Ask **“build context”** so it learns the companies, chart, and journals you work in. If your team keeps that context in Odoo Knowledge (Enterprise), Odin reads it from there instead and proposes corrections for review.
 3. Then try one of these:
 
 > **“Process these vendor bills”** — attach or point at bill PDFs/files, and let it draft.  
@@ -54,6 +54,7 @@ Use a sandbox first, and have a person own the close.
 Playbooks follow a finance-ops lifecycle:
 
 - **Set up and understand** — company context, new entity setup, opening balances, bookkeeping rules
+- **Shared context in Odoo Knowledge** — company facts, journals and posting rules served to every user from one reviewed workspace; changes go through a proposal a named reviewer approves (Odoo Enterprise with Knowledge)
 - **Record** — vendor bills, customer invoices, bank statement import, third-party conversion
 - **Settle and adjust** — bank reconciliation, posting and closing journals, paying vendor bills
 - **Run the cycle** — monthly bookkeeping as an orchestrated run

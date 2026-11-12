@@ -1041,6 +1041,16 @@ def _drift(entity, facts):
     )
     for name, label, live in checks:
         recorded = p.get(name)
+        if name == 'ctx_parent_id' and recorded in (0, False, None, ''):
+            # An integer property cannot be blank, so "no parent" is stored as 0
+            # and may read back as 0 or False — indistinguishable from "never
+            # filled". Treat it as "no parent": fine for a top-level company,
+            # drift if Odoo now shows a parent.
+            if live:
+                out.append('Drift: parent company id is %s in Odoo but none in the entity '
+                           'article "%s". Propose a correction to the article.'
+                           % (live, entity.get('name')))
+            continue
         if recorded in (False, None, ''):
             out.append('Drift check: the entity article has no %s (%s) to compare.'
                        % (label, name))

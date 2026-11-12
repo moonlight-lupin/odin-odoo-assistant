@@ -1,5 +1,12 @@
 # Playbook: build-context
 
+> **When the `odoo_context_*` tools are available, the instance context lives in the Knowledge
+> workspace.** Read it with `odoo_context_for` / `odoo_context_lookup` first; this playbook then
+> *verifies* those pages against Odoo, and every new page or correction is filed with
+> `odoo_context_propose` (complete page text + evidence + reason) for a Context reviewer to apply —
+> never written to a folder or edited with `odoo_write`. The folder output below applies only
+> without the tools. The user's private `access/<user>.md` stays in their working folder either way.
+
 Produce durable, reusable documentation of the Odoo environment so future sessions and the other
 playbooks read it instead of re-deriving it from Odoo. Two kinds of output:
 - **Instance context (SHAREABLE)** — facts that are the same for every user of the instance: the
