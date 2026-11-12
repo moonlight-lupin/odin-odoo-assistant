@@ -1,5 +1,13 @@
 # Playbook: design-bookkeeping-rules
 
+> **When the `odoo_context_*` tools are available, rulebooks live in the Knowledge workspace**
+> (one rulebook article per company, under *Posting rules*). Start from the company's existing
+> rulebook (`odoo_context_for`); file the new or revised rulebook with `odoo_context_propose` —
+> `target_article_id` = the existing rulebook, or `new` = {parent_id: the Posting rules folder,
+> title, properties: {ctx_type: "rulebook", ctx_company_id, ctx_structure}} — with the complete
+> text, evidence and reason. A Context reviewer applies it. The file path below applies only
+> without the tools.
+
 Co-design a reusable **bookkeeping rulebook** for **one company**: first understand the nature of
 the company, then agree the conventions Odin follows when recording its transactions — which
 accounts, journals, taxes and analytic tags to use, the recurring/adjusting entries **classified by

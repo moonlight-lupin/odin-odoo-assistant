@@ -119,9 +119,12 @@ Run the cycle → Review & report.**
 
 Playbooks obey the same Safety Protocol below — the bookkeeping playbooks **write** (draft only,
 confirm, never post without explicit instruction); build-context/generate-reports/month-end-review
-are read-only against Odoo (they only write local files). If `odoo-context/` already exists, read
-it first rather than re-deriving. Bookkeeping playbooks consult the **per-company** rulebook
-`bookkeeping-rules/<company>.md` for defaults — load the file for the exact company being posted into.
+are read-only against Odoo (they only write local files). Read the instance context first rather
+than re-deriving it — from the **Knowledge workspace** via `odoo_context_for` /
+`odoo_context_lookup` when those tools are available, else from `odoo-context/` (Session Setup →
+Step 2 has the file → article mapping). Bookkeeping playbooks consult the **per-company** rulebook
+for defaults — the rulebook article for the exact company being posted into (or
+`bookkeeping-rules/<company>.md` without the tools).
 
 ### Cash & settlement model (how money flows through the books)
 Cash movements are recognised from the **bank statement**, and **bank reconciliation settles** the
@@ -168,7 +171,7 @@ Load these when needed — do not load all upfront. They live in this skill's `r
 | `references/odoo18_other_models.md` | You need model info for Sales (`sale.order`), CRM (`crm.lead`), Purchasing (`purchase.order`), Projects (`project.project`, `project.task`), or Contacts (`res.partner`) |
 | `references/odoo18_api.md` | You need domain syntax, pagination patterns, or error-handling guidance (fault causes) |
 | `references/odoo18_knowledge.md` | You need to post, nest, or update Knowledge articles (`knowledge.article`) |
-| `references/context-doc-style.md` | You are about to write or update any `odoo-context/` or `bookkeeping-rules/` document (LLM-wiki frontmatter + Google developer documentation style) |
+| `references/context-doc-style.md` | You are about to write or update any context page — a Knowledge proposal's text, or an `odoo-context/` / `bookkeeping-rules/` document (LLM-wiki style + Google developer documentation style; in Knowledge the ctx_* properties replace the YAML frontmatter) |
 
 The XML-RPC method signatures in `odoo18_api.md` map 1:1 onto the MCP tools — e.g.
 `execute_kw(..., 'search_read', [domain], {fields, limit})` is `odoo_search_read`.
@@ -235,40 +238,58 @@ It returns `url`, `db`, `uid`, `username`, and the companies.
 > Some single-user deployments keep credentials in the server's `odoo_config.json` and
 > auto-connect; there a bare `odoo_whoami` suffices. Default to the credentials-file flow.
 
-### Step 2 — Load or build context
+### Step 2 — Load context (Knowledge first)
 
-**Scan the working folder FIRST — before any Odoo discovery (global convention, saves tokens).**
-At the start of every task, and again before any *bulk* Odoo discovery (entity lists, chart of
-accounts, journals, taxes, custom reports, company→partner maps), **glob the working folder (and the
-shared context location if set) and reuse what's already there** rather than re-querying Odoo:
-- `odoo-context/` — entities, chart-of-accounts, journals (own/shared), taxes-analytic,
-  custom-reports, per-entity profiles. `bookkeeping-rules/<company>.md` — per-company rules.
-  `access/<user>.md` — the connected user's scope. Prior deliverables under `month-end-review/`,
-  `bookkeeping/`, `reports/`, `audit/` (a recent run may already hold the answer).
-- **Read the cached facts (ids, codes, hierarchy, mappings) and use them directly.** Only call Odoo
-  for what's genuinely missing, what changed, or to *spot-verify* a fact the task depends on. Reading
-  a context file is far cheaper than re-deriving it from dozens of `odoo_*` calls.
-- Treat the docs as the source of truth unless your work **conflicts** with them — then refresh just
-  that fact, update the file, and note the change. Never blindly re-scan Odoo when a doc already
-  answers the question.
+**Where instance context lives — in this order:**
 
-Context comes in two kinds (see build-context):
-- **Instance context — SHAREABLE** (`odoo-context/`: entities, chart-of-accounts, journals,
-  taxes-analytic, custom-reports, per-entity profiles; + `bookkeeping-rules/`). Same for every user
-  → generated once and **shared** (a team repo/drive) to save tokens. Look for it in the **shared
-  context location** if one is set, else the working folder.
-- **User context — PRIVATE** (`access/<user>.md`: the connected user's access scope) + `creds.txt`.
-  Stays in the user's working folder; never shared.
+1. **The Knowledge workspace, through the `odoo_context_*` tools** (when they are in your tool
+   list). This is the shared, approved context for the instance: entity pages, per-structure
+   journals / chart of accounts / taxes / banking / partners pages, per-company rulebooks, FS
+   section maps, the Organisation page and Read me first — every page reviewed, dated and
+   filtered to the companies the user may see.
+   - `odoo_context_for(company_id, task)` — **the start of every company task** (Step 3). Returns
+     live company facts, journals resolved live, the routed articles as markdown, and warnings.
+   - `odoo_context_lookup(query=…)` — search across the workspace (e.g. a control account, a
+     partner, "CJE", an FS caption); filter with `structure` / `ctx_type`. Then
+     `odoo_context_lookup(article_id=…)` to read one page in full. Use it for group-level
+     questions with no single company (organisation, FS maps, the shared chart scheme).
+   - **Read before you query.** If an article answers the question (ids, codes, hierarchy,
+     journals own/shared, mappings, posting rules), use it — only call `odoo_*` for what is
+     missing, has changed, or to spot-verify a fact the task depends on.
+2. **A local or shared folder** (`odoo-context/`, `bookkeeping-rules/`) — **only when the
+   `odoo_context_*` tools are not available** (older server, or Knowledge not set up). A
+   folder whose content has been migrated into Knowledge is a read-only snapshot: do not treat it
+   as current when the tools are available.
 
-Then:
-- **If instance context exists and the user did NOT ask to rebuild it:** *use it* as the source of
-  truth (entities, hierarchy, CoA, journals own/shared, taxes, custom reports, company→partner map)
-  — don't re-derive. Only refresh a fact if later work **conflicts** with the docs (then update that
-  file + note the change). If the user's `access/<user>.md` is missing, derive just that (small).
-- **If the user asks to "build context" again:** **verify and update** (diff & amend), don't blindly
-  regenerate. See `playbooks/build-context.md`.
-- **If no context exists:** offer to run `build-context` (and to put the instance part in a shared
-  location), or proceed and capture what you learn.
+**Mapping for playbooks.** The playbooks were written against the folder. When the
+`odoo_context_*` tools are available:
+- *"read `odoo-context/…`"* → `odoo_context_for` / `odoo_context_lookup` (entity page, structure
+  pages, organisation, reports, FS maps).
+- *"load `bookkeeping-rules/<company>.md`"* → the **rulebook** article that `odoo_context_for`
+  returns for that exact company (or `odoo_context_lookup(query=<company>, ctx_type="rulebook")`).
+  Still one company's rulebook only — never apply one company's rules to another.
+- *"update / write / refresh / append to the doc, the rulebook or the change log"* →
+  **`odoo_context_propose`** with the complete new page text in markdown, the `evidence` (the
+  `odoo_*` calls or documents that support it) and the `reason`. Nothing approved changes until a
+  Context reviewer applies it with `odoo_context_apply_proposal` — tell the user the proposal id
+  and link. **Never** edit workspace articles with `odoo_write` / `odoo_create` /
+  `odoo_execute`: the server refuses, and it would skip review and the change log.
+- A new page (e.g. a rulebook for a company that has none) → `odoo_context_propose` with
+  `new = {parent_id, title, properties}` (parent = the matching folder article; properties at least
+  `ctx_type`, `ctx_company_id` / `ctx_structure`).
+- **Warnings are findings.** Read `odoo_context_for`'s warnings back to the user: a **drift**
+  warning (Odoo's year end, parent or currency differs from the entity page) or a **stale** page
+  means the context needs a proposal; "No approved rulebook" means the company has none yet —
+  offer `design-bookkeeping-rules`, which then files its rulebook as a proposal.
+
+**User context — PRIVATE** (`access/<user>.md`: the connected user's access scope) + `creds.txt`
+stays in the user's working folder; it never goes into Knowledge. Prior deliverables under
+`month-end-review/`, `bookkeeping/`, `reports/`, `audit/` in the working folder may already hold an
+answer — glob before re-running work.
+
+**If neither Knowledge nor a folder holds context:** offer to run `build-context`. With the tools
+available its findings become **proposals** for new or corrected pages; without them it writes the
+folder as before.
 
 ### Step 3 — Company context
 
@@ -286,7 +307,7 @@ payload for the rest of the session — do not re-prompt.
 company's live facts, its journals resolved live (own vs shared, with the posting procedure; bank
 journals own-only; the consolidation journal), the approved context articles from the Knowledge
 workspace, and warnings (year-end close, drift, stale articles). Treat it as the shared,
-authoritative instance context — prefer it over a local `odoo-context/` folder when both exist, and
+authoritative instance context — it replaces the local `odoo-context/` folder (Step 2), and
 read any warning back to the user. To correct an article, use `odoo_context_propose` (never edit
 workspace articles with `odoo_write` — the server refuses); only a Context reviewer applies it.
 
@@ -349,9 +370,10 @@ supports it. Never rely on the default company.
 ## Workflow Patterns
 
 ### Query Pattern
-0. **Check local context first.** If a folder doc (`odoo-context/`, `bookkeeping-rules/`, a prior
-   deliverable) already holds the ids/codes/mapping you need, use it — don't spend a query
-   rediscovering it (Session Setup → Step 2).
+0. **Check the context first.** If a Knowledge article (`odoo_context_for` /
+   `odoo_context_lookup`) — or, without those tools, a folder doc (`odoo-context/`,
+   `bookkeeping-rules/`) or a prior deliverable — already holds the ids/codes/mapping you need,
+   use it; don't spend a query rediscovering it (Session Setup → Step 2).
 1. Determine the target model (check reference files if unsure).
 2. Build the `domain`:
    - Most models: `[["company_id", "=", company_id]]`

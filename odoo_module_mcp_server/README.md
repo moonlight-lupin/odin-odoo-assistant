@@ -164,6 +164,8 @@ apply, so every change is reviewed and logged. Refusals are logged as **blocked*
 3. Give the folder articles their types: Change log `ctx_type = log`, Proposals `proposals`,
    Proposals → Rejected `rejected` (Rejected also carries the definition).
 4. Import the content (the generic write tools are still allowed — the guard is off until step 5).
+   For an existing context folder, [`context-import/import_context.py`](../context-import/README.md)
+   does steps 2–4 in one run and turns Accounting groups into workspace members.
 5. **Settings → General Settings → MCP Server → Odoo context**: set the root article id (and, if not
    90, the stale-after days). The context tools and the write guard switch on.
 

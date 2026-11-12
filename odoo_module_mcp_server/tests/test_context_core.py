@@ -373,6 +373,21 @@ class TestDriftAndFreshness(unittest.TestCase):
         self.assertTrue(any('parent company id is 8 in Odoo but 9' in w for w in warnings))
         self.assertTrue(any('currency is EUR in Odoo but GBP' in w for w in warnings))
 
+    def test_top_level_company_with_no_parent_is_not_drift(self):
+        backend = FakeBackend()
+        for recorded in (0, False):
+            with self.subTest(recorded=recorded):
+                backend.articles[123]['props']['ctx_parent_id'] = recorded
+                backend.companies[9]['parent_id'] = False
+                warnings = core.context_for(backend, {'company_id': 9})['warnings']
+                self.assertFalse([w for w in warnings if 'parent company id' in w], warnings)
+
+    def test_a_parent_appearing_on_a_top_level_company_is_drift(self):
+        backend = FakeBackend()
+        backend.articles[123]['props']['ctx_parent_id'] = 0
+        warnings = core.context_for(backend, {'company_id': 9})['warnings']
+        self.assertTrue(any('parent company id is 7 in Odoo but none' in w for w in warnings), warnings)
+
     def test_missing_drift_properties_are_flagged(self):
         backend = FakeBackend()
         del backend.articles[121]['props']['ctx_currency']
